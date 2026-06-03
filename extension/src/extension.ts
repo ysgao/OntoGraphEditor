@@ -7,6 +7,22 @@ import { IpcMessage, isConceptFocus, isGraphNodeSelect } from './ipcMessages';
 import { JreDetector, JRE_DOWNLOAD_URL } from './jreDetector';
 
 let proxy: LocalProxy | null = null;
+let pendingFocusIri: string | undefined;
+
+function isGraphTabOpen(): boolean {
+  return vscode.window.tabGroups.all
+    .flatMap(g => g.tabs)
+    .some(t => t.input instanceof vscode.TabInputWebview &&
+               (t.input as vscode.TabInputWebview).viewType.toLowerCase().includes('ontograph'));
+}
+
+function isGraphTabActive(): boolean {
+  return vscode.window.tabGroups.all
+    .flatMap(g => g.tabs)
+    .some(t => t.isActive &&
+               t.input instanceof vscode.TabInputWebview &&
+               (t.input as vscode.TabInputWebview).viewType.toLowerCase().includes('ontograph'));
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   const jre = new JreDetector().detect();
@@ -23,12 +39,35 @@ export async function activate(context: vscode.ExtensionContext) {
 
   proxy = await startProxy(context);
 
+  // When the ontograph tab becomes active, deliver any pending concept focus.
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs((e) => {
+      if (!pendingFocusIri) { return; }
+      for (const tab of e.changed) {
+        if (tab.isActive &&
+            tab.input instanceof vscode.TabInputWebview &&
+            (tab.input as vscode.TabInputWebview).viewType.toLowerCase().includes('ontograph')) {
+          const iri = pendingFocusIri;
+          pendingFocusIri = undefined;
+          vscode.commands.executeCommand('ontograph.focusEntity', { iri, fromIpc: true }).then(undefined, () => {});
+          break;
+        }
+      }
+    })
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('ontographEditor.openAuthoring', () => {
       AuthoringPanel.createOrShow(context, proxy!);
     }),
     vscode.commands.registerCommand('ontographEditor.openGraph', () => {
-      vscode.commands.executeCommand('ontograph.openGraph').then(undefined, () => {
+      // Open graph in the same column as the authoring panel so both appear as tabs.
+      // preserveFocus keeps authoring as the active tab after graph opens.
+      const col = AuthoringPanel.getViewColumn() ?? vscode.ViewColumn.Active;
+      vscode.commands.executeCommand('ontograph.openGraph', { viewColumn: col, preserveFocus: true }).then(() => {
+        // ontograph.openGraph may steal focus despite preserveFocus — restore authoring.
+        AuthoringPanel.reveal(false);
+      }, () => {
         vscode.window.showWarningMessage(
           'OntoGraph: OntoGraph-lite is not installed or not activated.',
           'Install OntoGraph-lite'
@@ -41,8 +80,16 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('ontographEditor.ipcRoute', (message: IpcMessage) => {
       if (isConceptFocus(message)) {
+        if (!isGraphTabOpen()) { return; }
         const iri = `http://snomed.info/id/${message.payload.id}`;
-        vscode.commands.executeCommand('ontograph.focusEntity', { iri, fromIpc: true }).then(undefined, () => {});
+        if (isGraphTabActive()) {
+          // Ontograph is the focused tab — sync immediately, no focus change needed.
+          vscode.commands.executeCommand('ontograph.focusEntity', { iri, fromIpc: true }).then(undefined, () => {});
+        } else {
+          // Ontograph is open but hidden — store IRI, deliver when user switches to it.
+          // Do NOT call focusEntity now: it would reveal the panel and steal focus.
+          pendingFocusIri = iri;
+        }
       } else if (isGraphNodeSelect(message)) {
         AuthoringPanel.postMessage(message);
       }
