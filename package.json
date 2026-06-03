@@ -11,7 +11,8 @@
     "build:client": "cd apps/authoring-ui-vscode && npx grunt build",
     "build-all": "npm run build:client && npm run build:extension",
     "lint": "npm run lint --prefix extension",
-    "test": "npm run test --prefix extension"
+    "test": "npm run test --prefix extension",
+    "package:vsix": "(cd extension && npx vsce package --out dist/)"
   },
   "devDependencies": {
     "eslint": "^8.0.0",

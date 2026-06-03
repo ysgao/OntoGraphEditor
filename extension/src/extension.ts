@@ -4,10 +4,23 @@ import { LocalProxy } from './localProxy';
 import { imsLogin } from './imsAuth';
 import { readChromeCookiesForHost, cookiesToHeader } from './chromeCookies';
 import { IpcMessage, isConceptFocus, isGraphNodeSelect } from './ipcMessages';
+import { JreDetector, JRE_DOWNLOAD_URL } from './jreDetector';
 
 let proxy: LocalProxy | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
+  const jre = new JreDetector().detect();
+  if (!jre.compatible) {
+    const msg = jre.found
+      ? `OntoGraph Editor requires Java 21+. Found Java ${jre.major}.`
+      : 'OntoGraph Editor requires Java 21 or later.';
+    vscode.window.showErrorMessage(msg, 'Install Java').then(selection => {
+      if (selection === 'Install Java') {
+        vscode.env.openExternal(vscode.Uri.parse(JRE_DOWNLOAD_URL));
+      }
+    });
+  }
+
   proxy = await startProxy(context);
 
   context.subscriptions.push(
@@ -17,8 +30,13 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('ontographEditor.openGraph', () => {
       vscode.commands.executeCommand('ontograph.openGraph').then(undefined, () => {
         vscode.window.showWarningMessage(
-          'OntoGraph: OntoGraph-lite is not installed or not activated.'
-        );
+          'OntoGraph: OntoGraph-lite is not installed or not activated.',
+          'Install OntoGraph-lite'
+        ).then(selection => {
+          if (selection === 'Install OntoGraph-lite') {
+            vscode.commands.executeCommand('workbench.extensions.installExtension', 'ysgao.ontograph-lite');
+          }
+        });
       });
     }),
     vscode.commands.registerCommand('ontographEditor.ipcRoute', (message: IpcMessage) => {
