@@ -26,7 +26,7 @@ npm run build-all
 This single command triggers the build sequence:
 1. **Clean**: Removes stale build artifacts.
 2. **Frontend Compilation**: Runs the Angular build in `apps/authoring-ui-vscode` to compile the app as static assets.
-3. **Backend Compilation**: Runs the TypeScript compiler (`tsc`) on the extension host code inside `extension/`.
+3. **Backend Compilation**: Runs `esbuild` (via `node ./extension/esbuild.mjs`) on the extension host code inside `extension/`.
 
 ---
 

@@ -12,7 +12,7 @@ The goal of this feature is to integrate the Angular-based clinical terminology 
 
 **Language/Version**: TypeScript 4.x / 5.x, Angular 12+ (matching the forked `authoring-ui`)
 
-**Primary Dependencies**: VS Code Extension Host API (`vscode`), Angular router, webpack/angular-cli
+**Primary Dependencies**: VS Code Extension Host API (`vscode`), Angular router, esbuild (for extension bundling), JRE 21+ (for reasoning backend)
 
 **Storage**: None (handled via IPC by the VS Code extension host)
 
@@ -22,9 +22,9 @@ The goal of this feature is to integrate the Angular-based clinical terminology 
 
 **Project Type**: VS Code Extension & Angular web application
 
-**Performance Goals**: Assets compiled in < 3 mins, webview renders immediately
+**Performance Goals**: Assets compiled in < 3 mins (using esbuild for extension), webview renders immediately
 
-**Constraints**: Webview sandbox restrictions, relative URL resolutions
+**Constraints**: Webview sandbox restrictions, relative URL resolutions, JRE version requirements
 
 **Scale/Scope**: Unified build configuration and directory structure for submodules
 
@@ -58,7 +58,7 @@ apps/
 extension/                       # Main VS Code Extension Bundle (TypeScript)
 ├── src/
 │   ├── extension.ts
-│   └── authoringPanel.ts
+│   └── authoringPanel.ts        # Tab controller with persistence & mapping engine
 ├── package.json
 └── tsconfig.json
 
@@ -73,26 +73,31 @@ package.json                     # Root configuration orchestrating workspaces/b
 
 ## Proposed Changes
 
-We will introduce workspace-level script entries and Angular configuration files.
+We will introduce workspace-level script entries, an esbuild configuration, and Angular service adaptations.
 
 ### 1. Workspace Configuration
 
 #### [MODIFY] [package.json](file:///Users/yoga/OntoGraphEditor/package.json)
-Configure the root packaging environment to bind the workspace and define the unified build scripts.
+Configure the root packaging environment to bind the workspace and define the unified esbuild-based scripts.
 
 ```json
 {
   "name": "ontograph-editor-root",
   "version": "1.0.0",
   "scripts": {
-    "build:extension": "cd extension && npm run compile",
+    "build:extension": "node ./extension/esbuild.mjs",
     "build:client": "cd apps/authoring-ui-vscode && npm run build -- --prod",
     "build-all": "npm run build:client && npm run build:extension"
   }
 }
 ```
 
-### 2. Angular client routing changes
+### 2. Tab Controller (Extension Host)
+
+#### [CREATE] [authoringPanel.ts](file:///Users/yoga/OntoGraphEditor/extension/src/authoringPanel.ts)
+Implement the tab controller class with `retainContextWhenHidden: true` and a custom regex-based HTML mapping engine to resolve relative Angular assets using `webview.asWebviewUri`.
+
+### 3. Angular client routing changes
 
 #### [MODIFY] [app-routing.module.ts](file:///Users/yoga/OntoGraphEditor/apps/authoring-ui-vscode/src/app/app-routing.module.ts)
 Ensure routing setup uses `useHash: true` to prevent URL resolution failures.

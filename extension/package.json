@@ -20,8 +20,40 @@
       {
         "command": "ontographEditor.openGraph",
         "title": "OntoGraph: Open Visualization Display"
+      },
+      {
+        "command": "ontographEditor.signIn",
+        "title": "OntoGraph: Sign In to IMS (username/password)"
+      },
+      {
+        "command": "ontographEditor.pasteCookie",
+        "title": "OntoGraph: Set IMS Session Cookie (paste from browser)"
+      },
+      {
+        "command": "ontographEditor.importChromeCookies",
+        "title": "OntoGraph: Import IMS Cookies from Chrome (macOS)"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "OntoGraph Editor",
+      "properties": {
+        "ontographEditor.authoringServicesEndpoint": {
+          "type": "string",
+          "default": "https://dev-snowstorm.ihtsdotools.org/authoring-services/",
+          "description": "Authoring Services backend URL, e.g. https://authoring.example.org/authoring-services/"
+        },
+        "ontographEditor.terminologyServerEndpoint": {
+          "type": "string",
+          "default": "https://dev-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/",
+          "description": "Snowstorm SNOMED CT terminology server endpoint"
+        },
+        "ontographEditor.imsEndpoint": {
+          "type": "string",
+          "default": "https://dev-snowstorm.ihtsdotools.org/",
+          "description": "IHTSDO Identity Management System endpoint"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

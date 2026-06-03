@@ -66,21 +66,22 @@ Configure unified build and packaging scripts at the root level to simplify buil
 - **FR-001**: The repository layout MUST define `apps/authoring-ui-vscode/` to house the custom clinical authoring Angular application.
 - **FR-002**: The Angular application MUST configure `HashLocationStrategy` as the primary routing provider.
 - **FR-003**: The Angular application MUST inject a custom `VsCodeService` (located at `/src/app/core/services/vscode.service.ts` or equivalent service module) to act as the communication bridge.
-- **FR-004**: The root `package.json` MUST define a unified build script `build-all` to trigger compilation of the Angular application and the VS Code extension TS compiler.
+- **FR-004**: The root `package.json` MUST define a unified build script `build-all` to trigger compilation of the Angular application and the VS Code extension using `esbuild`.
 - **FR-005**: Build scripts MUST cleanly copy or direct compiled Angular output files to distribution paths accessible by `webview.asWebviewUri` inside the extension.
+- **FR-006** *(deferred)*: The system MUST verify the presence of JRE 21+ at runtime to support the OntoGraph reasoning backend.
 
 ### Key Entities *(include if feature involves data)*
 
-- **VsCodeService**: The Angular service wrapper that manages `postMessage` requests and intercepts terminology calls, mapping them to the VS Code extension host messaging broker instead of backend API calls.
+- **VsCodeService**: The Angular service wrapper that manages `postMessage` requests and intercepts terminology calls, mapping them to the VS Code extension host messaging broker instead of backend API calls. Supports `CONCEPT_FOCUS` and `GRAPH_NODE_SELECT` event types.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Running the root build script compiles both the extension backend and Angular frontend components in under 3 minutes.
+- **SC-001**: Running the root build script compiles both the extension backend (via esbuild) and Angular frontend components in under 3 minutes.
 - **SC-002**: The compiled Angular client application runs within a sandboxed webview context using relative/webview URIs without throwing resource loading errors.
 
 ## Assumptions
 
 - The upstream `IHTSDO/authoring-ui` codebase does not depend on hardcoded root browser paths that cannot be overridden by `HashLocationStrategy`.
-- The user's system has Node.js and npm installed to support Angular compilation scripts.
+- The user's system has Node.js (18+), npm, and JRE 21+ installed to support compilation and reasoning scripts.
