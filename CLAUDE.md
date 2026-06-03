@@ -89,7 +89,7 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 ## Active Feature
 
 <!-- SPECKIT START -->
-Feature `004-upstream-sync` is in progress on branch `004-upstream-sync`. Specs and plan are in `specs/004-upstream-sync/`. Goal: establish a safe, repeatable maintenance workflow for syncing both submodules (`apps/authoring-ui-vscode` from IHTSDO/authoring-ui and `apps/OntoGraph-lite` from origin) while preserving all VS Code customizations (VsCodeService, HashLocationStrategy). Deliverables: upstream remote configuration, pre-merge conflict check for customization-scope files, documented sync runbook (`quickstart.md` + `docs/maintenance/upstream-sync.md`), and build verification gate. No new TypeScript source files. See `specs/004-upstream-sync/plan.md`.
+Feature `005-authoring-ui-layout-fixes` is in progress on branch `005-authoring-ui-layout-fixes`. Specs and plan are in `specs/005-authoring-ui-layout-fixes/`. Goal: fix three CSS layout defects in the Angular authoring UI when rendered in VS Code webview: (1) button-nav `top: 64px` offset wrong for webview (fix → `top: 0`), (2) edit column right-edge gap caused by VS Code webview body padding (fix → reset body padding + override `pull-right` to `float: none; width: 100%`), (3) `edit-no-model` view (diagram hidden) not expanding to full width in webview (fix → same as #2). All changes in a new `app/styles/vscode-overrides.scss` scoped to `.vscode-webview` body class (injected via inline script in `index.html` when `acquireVsCodeApi` is available). No Angular controller or template logic changes. See `specs/005-authoring-ui-layout-fixes/plan.md`.
 <!-- SPECKIT END -->
 
 ## Syncing Submodules
