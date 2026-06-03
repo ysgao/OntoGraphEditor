@@ -18,8 +18,9 @@
 
 **Purpose**: Project initialization and basic workspace setup
 
-- [ ] T001 Configure workspace directory layout and initialization settings in package.json
-- [ ] T002 Configure monorepo packaging build scripts in package.json
+- [X] T001 Configure root package.json with unified build scripts (client, extension, build-all)
+- [X] T012 Register ontographEditor.openAuthoring command in extension/package.json
+- [X] T018 [P] Verify IHTSDO/authoring-ui framework version (Angular 2+ vs AngularJS 1.x); confirm HashLocationStrategy API applies; document finding in research.md before Phase 4 work begins
 
 ---
 
@@ -27,7 +28,7 @@
 
 **Purpose**: Core infrastructure setup
 
-- [ ] T003 Configure linting and build checks at workspace root in package.json
+- [X] T003 Configure linting and build checks at workspace root in package.json
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -41,8 +42,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T004 [P] [US1] Fork and place client Angular codebase in apps/authoring-ui-vscode/package.json
-- [ ] T005 [US1] Configure Angular builder output directories in apps/authoring-ui-vscode/angular.json
+- [X] T004 [P] [US1] Fork and place client Angular codebase at apps/authoring-ui-vscode/ (submodule from ysgao/authoring-ui fork of IHTSDO/authoring-ui)
+- [X] T005 [US1] Configure Angular builder output directories — AngularJS/Grunt outputs to dist/ by default; build:client updated to use npx grunt build
+- [X] T016 [US1] Implement extension/src/authoringPanel.ts: createWebviewPanel, retainContextWhenHidden: true, webview.asWebviewUri HTML asset rewrite engine (FR-005, SC-002)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and buildable independently
 
@@ -56,8 +58,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T006 [US2] Implement HashLocationStrategy routing in apps/authoring-ui-vscode/src/app/app-routing.module.ts
-- [ ] T007 [P] [US2] Implement VsCodeService messaging provider in apps/authoring-ui-vscode/src/app/core/services/vscode.service.ts
+- [X] T006 [US2] HashLocationStrategy N/A — AngularJS 1.x uses hash routing by default; no routing changes required
+- [X] T014 [US2] Hash-fallback route N/A — covered by AngularJS ngRoute default hash behavior
+- [X] T007 [P] [US2] Implement vsCodeService AngularJS factory in apps/authoring-ui-vscode/app/shared/vscode-service/vsCodeService.js; registered in index.html
+- [X] T013 [US2] Browser-standalone fallback implemented in vsCodeService.js (graceful no-op when acquireVsCodeApi unavailable)
 
 **Checkpoint**: At this point, User Stories 1 and 2 should work independently
 
@@ -71,9 +75,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T008 [US3] Define client build script in package.json
-- [ ] T009 [US3] Define extension compile script in package.json
-- [ ] T010 [US3] Define build-all unified compile script in package.json
+- [X] T015 [SC-001] Verify build-all completion time is < 3 minutes — measured 37s total (client 35s + extension 2s). node-sass replaced with sass (dart) to support Node 22.
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -83,7 +85,7 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T011 Verify build compilation output formats and test execution via F5 launch in package.json
+- [X] T011 Verify build compilation output formats and test execution via F5 launch — .vscode/launch.json and tasks.json created; extension/dist/extension.js confirmed built by esbuild
 
 ---
 

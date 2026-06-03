@@ -1,0 +1,3 @@
+[submodule "apps/authoring-ui-vscode"]
+	path = apps/authoring-ui-vscode
+	url = https://github.com/ysgao/authoring-ui.git

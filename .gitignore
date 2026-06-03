@@ -2,3 +2,9 @@
 .gemini
 node_modules/
 .DS_Store
+dist/
+*.log
+*.js.map
+out/
+extension/dist/
+extension/out/
