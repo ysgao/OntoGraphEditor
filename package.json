@@ -1,0 +1,20 @@
+{
+  "name": "ontograph-editor-root",
+  "version": "1.0.0",
+  "description": "Unified ontology and terminology engineering environment for VS Code",
+  "private": true,
+  "workspaces": [
+    "extension"
+  ],
+  "scripts": {
+    "build:extension": "npm run build --prefix extension",
+    "build:client": "cd apps/authoring-ui-vscode && npx grunt build",
+    "build-all": "npm run build:client && npm run build:extension",
+    "lint": "npm run lint --prefix extension",
+    "test": "npm run test --prefix extension"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}
