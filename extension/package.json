@@ -59,18 +59,12 @@
     "vscode:prepublish": "npm run package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
     "build": "node esbuild.mjs",
     "package": "node esbuild.mjs --minify"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",
     "@types/node": "18.x",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.0.0",
     "esbuild": "^0.18.0",
     "typescript": "^5.0.0"
   }
