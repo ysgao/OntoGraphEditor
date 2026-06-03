@@ -20,6 +20,7 @@ npm run build:client     # Angular prod build only (apps/authoring-ui-vscode)
 npm run build:extension  # esbuild extension bundle only
 npm run lint             # ESLint on extension/src
 npm run test             # Extension tests (Karma/Jest per project)
+npm run package:vsix     # Package extension as .vsix (runs build-all first via vscode:prepublish)
 ```
 
 From `extension/`:
@@ -32,6 +33,8 @@ npm run package   # esbuild bundle (minified, for publish)
 ```
 
 **Debug**: Open repo root in VS Code → Run & Debug → `Launch Extension` (F5). A second `[Extension Development Host]` window opens. Trigger `OntoGraph: Open Editing Workbench` to verify webview loads.
+
+**Packaging**: Run `npm run package:vsix` from repo root. Output: `extension/dist/ontograph-editor-extension-{version}.vsix`. Install via VS Code "Install from VSIX…" or publish with `vsce publish --pat $VSCE_PAT` from `extension/`. Set `VSCE_PAT` GitHub secret for CI auto-publish on version tags (`git tag v1.0.0 && git push origin v1.0.0`).
 
 ## Architecture
 
@@ -86,7 +89,7 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 ## Active Feature
 
 <!-- SPECKIT START -->
-Feature `002-graph-panel-ipc-bridge` is in progress on branch `002-graph-panel-ipc-bridge`. Specs and plan are in `specs/002-graph-panel-ipc-bridge/`. Architecture: **companion extension pattern** — OntoGraph-lite (`ysgao.ontograph-lite`) is declared as `extensionDependencies`; IPC bridge uses VS Code commands (`ontographEditor.ipcRoute` ↔ `ontograph.focusEntity`). Key changes: (1) patch `extension.ts` to register `openGraph` + `ipcRoute` commands, (2) patch `authoringPanel.ts` to add `static postMessage()`, (3) two small patches to OntoGraph-lite submodule (`apps/OntoGraph-lite/`). No new `graphPanel.ts` — OntoGraph-lite owns its own panel. See `specs/002-graph-panel-ipc-bridge/plan.md`.
+Feature `003-extension-publish` is in progress on branch `003-extension-publish`. Specs and plan are in `specs/003-extension-publish/`. Goal: package and publish the OntoGraph Editor extension to the VS Code Marketplace. Key changes: (1) new `extension/src/jreDetector.ts` service detecting JRE 21+ at activation, (2) patch `extension.ts` to call JRE check and add "Install OntoGraph-lite" action button on missing-companion warning, (3) new `extension/.vscodeignore` to keep VSIX < 50 MB, (4) update `extension/package.json` with marketplace metadata + `@vscode/vsce` devDep + `package:vsix` script, (5) new `.github/workflows/release.yml` CI/CD pipeline publishing on version tag push. `extensionDependencies: ["ysgao.ontograph-lite"]` is already declared — no change needed. See `specs/003-extension-publish/plan.md`.
 <!-- SPECKIT END -->
 
 ## Syncing Submodules

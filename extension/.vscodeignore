@@ -1,0 +1,44 @@
+# Workspace root traversal — vsce walks ../ in npm workspace setups
+# Exclude everything above the extension/ directory
+../.git/**
+../.claude/**
+../.gemini/**
+../.vscode/**
+../.github/**
+../.gitignore
+../.gitmodules
+../CLAUDE.md
+../GEMINI.md
+../OntoGraphEditorSpec.md
+../*.md
+../package.json
+../package-lock.json
+
+# Workspace root: submodule source trees (bulk exclusion)
+../apps/**
+
+# Workspace root: specs/docs
+../specs/**
+
+# Workspace root: root node_modules (not the extension's)
+../node_modules/**
+
+# Extension source — only the esbuild bundle (dist/extension.js) is needed
+src/**
+out/**
+
+# Extension devDependencies (bundled into dist/extension.js by esbuild)
+node_modules/**
+
+# TypeScript source and source maps
+**/*.ts
+**/*.map
+
+# Test files
+**/*.test.js
+**/*.spec.js
+
+# Extension build configuration
+esbuild.mjs
+tsconfig.json
+package-lock.json

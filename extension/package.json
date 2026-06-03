@@ -1,8 +1,14 @@
 {
   "name": "ontograph-editor-extension",
   "displayName": "OntoGraph Editor",
-  "version": "0.0.1",
+  "version": "1.0.0",
+  "description": "Unified SNOMED CT ontology authoring and visualization environment for VS Code — pairs the AuthoringUI editing workbench with OntoGraph-lite graph visualization.",
   "publisher": "ontograph",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ysgao/OntoGraphEditor.git"
+  },
+  "icon": "assets/icon.png",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -10,6 +16,7 @@
     "ysgao.ontograph-lite"
   ],
   "categories": [
+    "Education",
     "Other"
   ],
   "activationEvents": [],
@@ -63,12 +70,14 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "build": "node esbuild.mjs",
-    "package": "node esbuild.mjs --minify"
+    "package": "node esbuild.mjs --minify",
+    "package:vsix": "vsce package --out dist/"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",
     "@types/node": "18.x",
     "esbuild": "^0.18.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^3.0.0"
   }
 }
