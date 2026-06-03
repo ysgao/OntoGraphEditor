@@ -26,7 +26,7 @@ export class AuthoringPanel {
     this.panel = vscode.window.createWebviewPanel(
       'ontographAuthoring',
       'Authoring Workbench',
-      vscode.ViewColumn.One,
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -45,16 +45,32 @@ export class AuthoringPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
-  static createOrShow(context: vscode.ExtensionContext, proxy: LocalProxy): void {
+  static createOrShow(context: vscode.ExtensionContext, proxy: LocalProxy, preserveFocus = false): void {
     AuthoringPanel.proxy = proxy;
     AuthoringPanel.context = context;
     if (AuthoringPanel.instance) {
-      AuthoringPanel.instance.panel.reveal(vscode.ViewColumn.One);
+      // Reveal in the panel's current column so we never override a layout the user chose.
+      const col = AuthoringPanel.instance.panel.viewColumn ?? vscode.ViewColumn.Active;
+      AuthoringPanel.instance.panel.reveal(col, preserveFocus);
       return;
     }
     const panel = new AuthoringPanel(context);
     AuthoringPanel.instance = panel;
     panel.initialize();
+  }
+
+  static getViewColumn(): vscode.ViewColumn | undefined {
+    return AuthoringPanel.instance?.panel.viewColumn;
+  }
+
+  static reveal(preserveFocus = false): void {
+    if (!AuthoringPanel.instance) { return; }
+    const col = AuthoringPanel.instance.panel.viewColumn ?? vscode.ViewColumn.Active;
+    AuthoringPanel.instance.panel.reveal(col, preserveFocus);
+  }
+
+  static isActive(): boolean {
+    return AuthoringPanel.instance?.panel.active ?? false;
   }
 
   /** Called when settings change and the proxy is restarted with a new port. */
