@@ -83,7 +83,7 @@
 **Purpose**: Final validation and any size/cleanup adjustments after all user stories complete
 
 - [x] T012 [P] Verify final `.vsix` file size is under 50 MB; if over, audit `extension/.vscodeignore` for additional large paths (e.g., `apps/OntoGraph-lite/ontologies/**`) and add exclusions
-- [ ] T013 [P] Replace placeholder `extension/assets/icon.png` with a final-quality 128×128 PNG icon before public release
+- [x] T013 [P] Replace placeholder `extension/assets/icon.png` with a final-quality 128×128 PNG icon before public release
 - [x] T014 Verify `extension/package.json` `"repository"` field matches the actual GitHub remote URL (`git remote get-url origin`)
 - [x] T015 Run quickstart.md end-to-end: package VSIX locally, install on clean VS Code instance, verify both commands and JRE notification behave as specified
 
