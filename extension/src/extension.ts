@@ -3,6 +3,7 @@ import { AuthoringPanel } from './authoringPanel';
 import { LocalProxy } from './localProxy';
 import { imsLogin } from './imsAuth';
 import { readChromeCookiesForHost, cookiesToHeader } from './chromeCookies';
+import { IpcMessage, isConceptFocus, isGraphNodeSelect } from './ipcMessages';
 
 let proxy: LocalProxy | null = null;
 
@@ -12,6 +13,21 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('ontographEditor.openAuthoring', () => {
       AuthoringPanel.createOrShow(context, proxy!);
+    }),
+    vscode.commands.registerCommand('ontographEditor.openGraph', () => {
+      vscode.commands.executeCommand('ontograph.openGraph').then(undefined, () => {
+        vscode.window.showWarningMessage(
+          'OntoGraph: OntoGraph-lite is not installed or not activated.'
+        );
+      });
+    }),
+    vscode.commands.registerCommand('ontographEditor.ipcRoute', (message: IpcMessage) => {
+      if (isConceptFocus(message)) {
+        const iri = `http://snomed.info/id/${message.payload.id}`;
+        vscode.commands.executeCommand('ontograph.focusEntity', { iri, fromIpc: true }).then(undefined, () => {});
+      } else if (isGraphNodeSelect(message)) {
+        AuthoringPanel.postMessage(message);
+      }
     }),
     vscode.commands.registerCommand('ontographEditor.signIn', () => signIn(context)),
     vscode.commands.registerCommand('ontographEditor.pasteCookie', () => pasteCookie(context)),

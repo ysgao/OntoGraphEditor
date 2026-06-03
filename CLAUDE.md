@@ -85,7 +85,9 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 
 ## Active Feature
 
-Feature `001-authoring-ui-integration` is in progress on branch `001-authoring-ui-integration`. Specs and task checklist are in `specs/001-authoring-ui-integration/`. The `apps/` directory and most `extension/src/` files do not exist yet — implementation is the current work.
+<!-- SPECKIT START -->
+Feature `002-graph-panel-ipc-bridge` is in progress on branch `002-graph-panel-ipc-bridge`. Specs and plan are in `specs/002-graph-panel-ipc-bridge/`. Architecture: **companion extension pattern** — OntoGraph-lite (`ysgao.ontograph-lite`) is declared as `extensionDependencies`; IPC bridge uses VS Code commands (`ontographEditor.ipcRoute` ↔ `ontograph.focusEntity`). Key changes: (1) patch `extension.ts` to register `openGraph` + `ipcRoute` commands, (2) patch `authoringPanel.ts` to add `static postMessage()`, (3) two small patches to OntoGraph-lite submodule (`apps/OntoGraph-lite/`). No new `graphPanel.ts` — OntoGraph-lite owns its own panel. See `specs/002-graph-panel-ipc-bridge/plan.md`.
+<!-- SPECKIT END -->
 
 ## Syncing Submodules
 
