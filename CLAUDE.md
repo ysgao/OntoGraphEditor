@@ -89,20 +89,30 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 ## Active Feature
 
 <!-- SPECKIT START -->
-Feature `003-extension-publish` is in progress on branch `003-extension-publish`. Specs and plan are in `specs/003-extension-publish/`. Goal: package and publish the OntoGraph Editor extension to the VS Code Marketplace. Key changes: (1) new `extension/src/jreDetector.ts` service detecting JRE 21+ at activation, (2) patch `extension.ts` to call JRE check and add "Install OntoGraph-lite" action button on missing-companion warning, (3) new `extension/.vscodeignore` to keep VSIX < 50 MB, (4) update `extension/package.json` with marketplace metadata + `@vscode/vsce` devDep + `package:vsix` script, (5) new `.github/workflows/release.yml` CI/CD pipeline publishing on version tag push. `extensionDependencies: ["ysgao.ontograph-lite"]` is already declared — no change needed. See `specs/003-extension-publish/plan.md`.
+Feature `004-upstream-sync` is in progress on branch `004-upstream-sync`. Specs and plan are in `specs/004-upstream-sync/`. Goal: establish a safe, repeatable maintenance workflow for syncing both submodules (`apps/authoring-ui-vscode` from IHTSDO/authoring-ui and `apps/OntoGraph-lite` from origin) while preserving all VS Code customizations (VsCodeService, HashLocationStrategy). Deliverables: upstream remote configuration, pre-merge conflict check for customization-scope files, documented sync runbook (`quickstart.md` + `docs/maintenance/upstream-sync.md`), and build verification gate. No new TypeScript source files. See `specs/004-upstream-sync/plan.md`.
 <!-- SPECKIT END -->
 
 ## Syncing Submodules
 
+Full runbook: `docs/maintenance/upstream-sync.md`
+
+Quick reference:
+
 ```bash
-# Sync authoring-ui-vscode with upstream IHTSDO changes
+# 1. Sync authoring-ui-vscode with upstream IHTSDO changes
 cd apps/authoring-ui-vscode
 git fetch upstream
+../../scripts/check-upstream-conflicts.sh upstream/master   # verify no customization-scope conflicts
 git merge upstream/master   # VsCodeService customizations stay intact
+cd ../..
 
-# Sync OntoGraph-lite
+# 2. Sync OntoGraph-lite (default branch is 'main')
 cd apps/OntoGraph-lite
-git fetch origin && git merge origin/master
+git fetch origin && git merge origin/main
+cd ../..
+
+# 3. Verify unified build
+npm run build-all
 ```
 
 ## Requirements
