@@ -5,8 +5,14 @@
       "name": "Launch Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
-      "outFiles": ["${workspaceFolder}/extension/dist/**/*.js"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extension",
+        "--extensionDevelopmentPath=${workspaceFolder}/apps/OntoGraph-lite"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/extension/dist/**/*.js",
+        "${workspaceFolder}/apps/OntoGraph-lite/dist/**/*.js"
+      ],
       "preLaunchTask": "build:extension"
     }
   ]

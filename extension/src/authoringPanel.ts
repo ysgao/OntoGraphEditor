@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
 import { LocalProxy } from './localProxy';
+import type { IpcMessage } from './ipcMessages';
 
 export class AuthoringPanel {
   private static instance: AuthoringPanel | undefined;
@@ -64,6 +65,11 @@ export class AuthoringPanel {
   /** Re-fetches auth and rebuilds the webview HTML after settings change. */
   static reinitialize(): void {
     AuthoringPanel.instance?.initialize();
+  }
+
+  static postMessage(msg: IpcMessage): void {
+    if (!AuthoringPanel.instance) { return; }
+    void AuthoringPanel.instance.panel.webview.postMessage(msg);
   }
 
   async initialize(): Promise<void> {
