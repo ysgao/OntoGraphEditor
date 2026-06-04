@@ -22,6 +22,10 @@ npm run lint             # ESLint on extension/src
 npm run test             # Extension tests (Karma/Jest per project)
 npm run package:vsix     # Package extension as .vsix (runs build-all first via vscode:prepublish)
 ```
+```
+npm run build-all && npm run package:vsix
+```
+
 
 From `extension/`:
 

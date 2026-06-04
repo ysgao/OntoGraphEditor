@@ -1,5 +1,10 @@
 # Workspace root traversal — vsce walks ../ in npm workspace setups
 # Exclude everything above the extension/ directory
+../.DS_Store
+.DS_Store
+../LICENSE
+../LICENSE.md
+../LICENSE.txt
 ../.git/**
 ../.claude/**
 ../.gemini/**
@@ -17,8 +22,16 @@
 # Workspace root: submodule source trees (bulk exclusion)
 ../apps/**
 
-# Workspace root: specs/docs
+# Authoring UI webview assets (copied to extension/dist/authoring-ui by build-all)
+dist/authoring-ui/node_modules/**
+
+# Bundled OntoGraph-lite VSIX (force-include — vsce ignores *.vsix by default)
+!dist/ontograph-lite.vsix
+
+# Workspace root: specs/docs/scripts
 ../specs/**
+../docs/**
+../scripts/**
 
 # Workspace root: root node_modules (not the extension's)
 ../node_modules/**

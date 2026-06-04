@@ -17,10 +17,8 @@ export class AuthoringPanel {
   private constructor(context: vscode.ExtensionContext) {
     this.distPath = vscode.Uri.joinPath(
       context.extensionUri,
-      '..',
-      'apps',
-      'authoring-ui-vscode',
-      'dist'
+      'dist',
+      'authoring-ui'
     );
 
     this.panel = vscode.window.createWebviewPanel(

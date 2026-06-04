@@ -9,7 +9,9 @@
   "scripts": {
     "build:extension": "npm run build --prefix extension",
     "build:client": "cd apps/authoring-ui-vscode && npx grunt build",
-    "build-all": "npm run build:client && npm run build:extension",
+    "copy:client": "rm -rf extension/dist/authoring-ui && cp -r apps/authoring-ui-vscode/dist extension/dist/authoring-ui",
+    "package:graph": "(cd apps/OntoGraph-lite && npx @vscode/vsce package --out ../../extension/dist/ontograph-lite.vsix)",
+    "build-all": "npm run build:client && npm run build:extension && npm run copy:client && npm run package:graph",
     "lint": "npm run lint --prefix extension",
     "test": "npm run test --prefix extension",
     "package:vsix": "(cd extension && npx vsce package --out dist/)"
