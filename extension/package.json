@@ -12,9 +12,7 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "extensionDependencies": [
-    "ysgao.ontograph-lite"
-  ],
+  "extensionDependencies": [],
   "categories": [
     "Education",
     "Other"

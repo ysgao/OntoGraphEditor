@@ -25,6 +25,8 @@ function isGraphTabActive(): boolean {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  void ensureOntoGraphLiteInstalled(context);
+
   const jre = new JreDetector().detect();
   if (!jre.compatible) {
     const msg = jre.found
@@ -69,13 +71,9 @@ export async function activate(context: vscode.ExtensionContext) {
         AuthoringPanel.reveal(false);
       }, () => {
         vscode.window.showWarningMessage(
-          'OntoGraph: OntoGraph-lite is not installed or not activated.',
-          'Install OntoGraph-lite'
-        ).then(selection => {
-          if (selection === 'Install OntoGraph-lite') {
-            vscode.commands.executeCommand('workbench.extensions.installExtension', 'ysgao.ontograph-lite');
-          }
-        });
+          'OntoGraph-lite is not yet active. Installing…'
+        );
+        void ensureOntoGraphLiteInstalled(context);
       });
     }),
     vscode.commands.registerCommand('ontographEditor.ipcRoute', (message: IpcMessage) => {
@@ -203,6 +201,12 @@ async function importChromeCookies(context: vscode.ExtensionContext): Promise<vo
     console.error('[OntoGraph] importChromeCookies failed:', e);
     vscode.window.showErrorMessage('OntoGraph: Chrome cookie import failed — ' + msg);
   }
+}
+
+async function ensureOntoGraphLiteInstalled(context: vscode.ExtensionContext): Promise<void> {
+  if (vscode.extensions.getExtension('ysgao.ontograph-lite')) { return; }
+  const vsixUri = vscode.Uri.joinPath(context.extensionUri, 'dist', 'ontograph-lite.vsix');
+  await vscode.commands.executeCommand('workbench.extensions.installExtension', vsixUri);
 }
 
 async function startProxy(context: vscode.ExtensionContext): Promise<LocalProxy> {
