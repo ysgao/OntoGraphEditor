@@ -5,11 +5,15 @@ import * as https from 'https';
 import * as http from 'http';
 import { LocalProxy } from '../shared/localProxy';
 import type { IpcMessage } from '../shared/ipcMessages';
+import { DisplayConfigStore } from './displayConfig';
+import { isDisplayConfigChange } from './displayConfigMessages';
+import type { DisplayConfigInitMessage } from './displayConfigMessages';
 
 export class AuthoringPanel {
   private static instance: AuthoringPanel | undefined;
   private static proxy: LocalProxy | null = null;
   private static context: vscode.ExtensionContext | undefined;
+  private static configStore: DisplayConfigStore | undefined;
   private readonly panel: vscode.WebviewPanel;
   private readonly distPath: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
@@ -18,7 +22,7 @@ export class AuthoringPanel {
     this.distPath = vscode.Uri.joinPath(
       context.extensionUri,
       'dist',
-      'authoring-ui'
+      'authoring'
     );
 
     this.panel = vscode.window.createWebviewPanel(
@@ -46,6 +50,9 @@ export class AuthoringPanel {
   static createOrShow(context: vscode.ExtensionContext, proxy: LocalProxy, preserveFocus = false): void {
     AuthoringPanel.proxy = proxy;
     AuthoringPanel.context = context;
+    if (!AuthoringPanel.configStore) {
+      AuthoringPanel.configStore = new DisplayConfigStore(context.globalState);
+    }
     if (AuthoringPanel.instance) {
       // Reveal in the panel's current column so we never override a layout the user chose.
       const col = AuthoringPanel.instance.panel.viewColumn ?? vscode.ViewColumn.Active;
@@ -284,7 +291,23 @@ export class AuthoringPanel {
     }
     const configScript = `<script>window.__ONTOGRAPH_CONFIG__=${JSON.stringify(ontographConfig)};</script>`;
 
-    html = html.replace(/(<head[^>]*>)/i, `$1${cspTag}${baseTag}${configScript}`);
+    // Sync panel backgrounds to VS Code's active theme.
+    // Targets only background colours; buttons, text, and other elements untouched.
+    const vsCodeThemeStyle = `<style>
+body,
+.sca-container,
+.editpanel,
+.sca-column,
+.sidebar-bg,
+.grey.darken-3,
+.edits.editing-form,
+.container-fluid,
+[ng-view] > div {
+  background-color: var(--vscode-editor-background) !important;
+}
+</style>`;
+
+    html = html.replace(/(<head[^>]*>)/i, `$1${cspTag}${baseTag}${configScript}${vsCodeThemeStyle}`);
 
     return html;
   }
@@ -297,7 +320,31 @@ export class AuthoringPanel {
         return;
       }
     }
+
+    if (isDisplayConfigChange(message)) {
+      console.log('[OntoGraph] DISPLAY_CONFIG_CHANGE received, saving:', JSON.stringify(message.payload).slice(0, 200));
+      AuthoringPanel.configStore?.save(message.payload);
+      return;
+    }
+
+    if (message.command === 'WEBVIEW_READY') {
+      console.log('[OntoGraph] WEBVIEW_READY received, sending DISPLAY_CONFIG_INIT');
+      this.sendDisplayConfigInit();
+      return;
+    }
+
     vscode.commands.executeCommand('ontographEditor.ipcRoute', message);
+  }
+
+  private sendDisplayConfigInit(): void {
+    if (!AuthoringPanel.configStore) {
+      console.log('[OntoGraph] sendDisplayConfigInit: no configStore');
+      return;
+    }
+    const config = AuthoringPanel.configStore.load();
+    console.log('[OntoGraph] sending DISPLAY_CONFIG_INIT colourScheme:', (config.userPreferences as Record<string, unknown>)?.colourScheme);
+    const msg: DisplayConfigInitMessage = { command: 'DISPLAY_CONFIG_INIT', payload: config };
+    void this.panel.webview.postMessage(msg);
   }
 
   dispose(): void {

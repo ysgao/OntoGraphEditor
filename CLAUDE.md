@@ -93,7 +93,7 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 ## Active Feature
 
 <!-- SPECKIT START -->
-Feature `005-authoring-ui-layout-fixes` is in progress on branch `005-authoring-ui-layout-fixes`. Specs and plan are in `specs/005-authoring-ui-layout-fixes/`. Goal: fix three CSS layout defects in the Angular authoring UI when rendered in VS Code webview: (1) button-nav `top: 64px` offset wrong for webview (fix → `top: 0`), (2) edit column right-edge gap caused by VS Code webview body padding (fix → reset body padding + override `pull-right` to `float: none; width: 100%`), (3) `edit-no-model` view (diagram hidden) not expanding to full width in webview (fix → same as #2). All changes in a new `app/styles/vscode-overrides.scss` scoped to `.vscode-webview` body class (injected via inline script in `index.html` when `acquireVsCodeApi` is available). No Angular controller or template logic changes. See `specs/005-authoring-ui-layout-fixes/plan.md`.
+Feature `008-persist-display-config` is in progress on branch `008-persist-display-config`. Specs and plan are in `specs/008-persist-display-config/`. Goal: persist authoring-ui-vscode display configuration (tree-view width, editor width, display scheme, mode) across VS Code restarts using `ExtensionContext.globalState`. Angular webview sends `DISPLAY_CONFIG_CHANGE` via IPC; extension host writes to `globalState` and replays saved config via `DISPLAY_CONFIG_INIT` on panel activation. See `specs/008-persist-display-config/plan.md`.
 <!-- SPECKIT END -->
 
 ## Syncing Submodules
