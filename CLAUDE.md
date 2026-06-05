@@ -18,8 +18,6 @@ From repo root:
 npm run build-all        # Build Angular client then extension bundle
 npm run build:client     # Angular prod build only (apps/authoring-ui-vscode)
 npm run build:extension  # esbuild extension bundle only
-npm run lint             # ESLint on extension/src
-npm run test             # Extension tests (Karma/Jest per project)
 npm run package:vsix     # Package extension as .vsix (runs build-all first via vscode:prepublish)
 ```
 ```
