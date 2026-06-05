@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
-import { LocalProxy } from './localProxy';
-import type { IpcMessage } from './ipcMessages';
+import { LocalProxy } from '../shared/localProxy';
+import type { IpcMessage } from '../shared/ipcMessages';
 
 export class AuthoringPanel {
   private static instance: AuthoringPanel | undefined;

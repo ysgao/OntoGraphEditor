@@ -10,16 +10,75 @@
   },
   "icon": "assets/icon.png",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.90.0"
   },
   "extensionDependencies": [],
   "categories": [
     "Education",
+    "Programming Languages",
+    "Data Science",
+    "Visualization",
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ontograph",
+          "title": "OntoGraph",
+          "icon": "resources/icons/ontology.svg"
+        }
+      ]
+    },
+    "views": {
+      "ontograph": [
+        {
+          "id": "ontograph.inferredClasses",
+          "name": "Inferred Hierarchy",
+          "icon": "$(symbol-class)",
+          "contextualTitle": "Inferred Class Hierarchy"
+        },
+        {
+          "id": "ontograph.classes",
+          "name": "Classes",
+          "icon": "$(type-hierarchy)",
+          "contextualTitle": "OWL Classes",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "ontograph.objectProperties",
+          "name": "Object Properties",
+          "icon": "$(symbol-interface)",
+          "contextualTitle": "OWL Object Properties",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "ontograph.dataProperties",
+          "name": "Data Properties",
+          "icon": "$(symbol-field)",
+          "contextualTitle": "OWL Data Properties",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "ontograph.annotationProperties",
+          "name": "Annotation Properties",
+          "icon": "$(tag)",
+          "contextualTitle": "OWL Annotation Properties",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "ontograph.individuals",
+          "name": "Individuals",
+          "icon": "$(symbol-object)",
+          "contextualTitle": "OWL Individuals",
+          "visibility": "collapsed"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ontographEditor.openAuthoring",
@@ -40,6 +99,188 @@
       {
         "command": "ontographEditor.importChromeCookies",
         "title": "OntoGraph: Import IMS Cookies from Chrome (macOS)"
+      },
+      {
+        "command": "ontograph.searchEntity",
+        "title": "OntoGraph: Search Entity",
+        "icon": "$(search)"
+      },
+      {
+        "command": "ontograph.refresh",
+        "title": "OntoGraph: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ontograph.classifyOntology",
+        "title": "OntoGraph: Classify Ontology",
+        "icon": "$(run)"
+      },
+      {
+        "command": "ontograph.classifyOntologyStale",
+        "title": "OntoGraph: Update Classification",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "ontograph.checkConsistency",
+        "title": "OntoGraph: Check Consistency",
+        "icon": "$(check)"
+      },
+      {
+        "command": "ontograph.openGraph",
+        "title": "Open Graph",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "ontograph.openSparqlEditor",
+        "title": "OntoGraph: Open SPARQL Editor",
+        "icon": "$(search)"
+      },
+      {
+        "command": "ontograph.openDLQuery",
+        "title": "OntoGraph: Open DL Query",
+        "category": "OntoGraph",
+        "icon": "$(symbol-class)"
+      },
+      {
+        "command": "ontograph.addEntity",
+        "title": "OntoGraph: Add Entity...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ontograph.exportOntology",
+        "title": "OntoGraph: Export Ontology As...",
+        "icon": "$(export)"
+      },
+      {
+        "command": "ontograph.copyIri",
+        "title": "Copy Entity",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "ontograph.showEntityInfo",
+        "title": "OntoGraph: Show Entity Info",
+        "icon": "$(info)"
+      },
+      {
+        "command": "ontograph.diagnose",
+        "title": "OntoGraph: Diagnose State"
+      },
+      {
+        "command": "ontograph.entityEditor",
+        "title": "Entity Editor",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "ontograph.loadOntologyFile",
+        "title": "OntoGraph: Load Ontology File…",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "ontograph.focusEntity",
+        "title": "OntoGraph: Focus Entity by IRI"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ontograph.searchEntity",
+          "when": "view =~ /^ontograph\\./",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ontograph.refresh",
+          "when": "view =~ /^ontograph\\./",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ontograph.classifyOntology",
+          "when": "view == ontograph.classes || view == ontograph.inferredClasses && !ontograph.classificationNeedsUpdate",
+          "group": "navigation@0"
+        },
+        {
+          "command": "ontograph.classifyOntologyStale",
+          "when": "view == ontograph.inferredClasses && ontograph.classificationNeedsUpdate",
+          "group": "navigation@0"
+        },
+        {
+          "command": "ontograph.loadOntologyFile",
+          "when": "view == ontograph.classes",
+          "group": "navigation@-1"
+        },
+        {
+          "command": "ontograph.loadOntologyFile",
+          "when": "view == ontograph.inferredClasses",
+          "group": "navigation@-1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ontograph.copyIri",
+          "when": "view =~ /^ontograph\\./ && viewItem =~ /^owlEntity/",
+          "group": "1_copy"
+        },
+        {
+          "command": "ontograph.openGraph",
+          "when": "view =~ /^ontograph\\.(classes|inferredClasses|individuals)/ && viewItem =~ /^owlEntity/",
+          "group": "2_navigate"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ontograph.copyIri",
+          "when": "false"
+        },
+        {
+          "command": "ontograph.showEntityInfo",
+          "when": "false"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "ontograph.classes",
+        "contents": "No ontology loaded.\n\nOpen an OWL file to populate the class hierarchy:\n- OWL Functional Syntax (.ofn)\n- Manchester Syntax (.omn)\n- OWL/XML (.owl)"
+      }
+    ],
+    "languages": [
+      {
+        "id": "owl-functional",
+        "aliases": [
+          "OWL Functional Syntax",
+          "OWL-FS"
+        ],
+        "extensions": [
+          ".ofn"
+        ],
+        "mimetypes": [
+          "text/owl-functional"
+        ]
+      },
+      {
+        "id": "manchester",
+        "aliases": [
+          "Manchester Syntax",
+          "OWL Manchester"
+        ],
+        "extensions": [
+          ".omn"
+        ],
+        "mimetypes": [
+          "text/owl-manchester"
+        ]
+      },
+      {
+        "id": "owl-xml",
+        "aliases": [
+          "OWL/XML",
+          "OWL XML"
+        ],
+        "extensions": [
+          ".owl"
+        ],
+        "mimetypes": [
+          "application/owl+xml"
+        ]
       }
     ],
     "configuration": {
@@ -59,6 +300,78 @@
           "type": "string",
           "default": "https://dev-snowstorm.ihtsdotools.org/",
           "description": "IHTSDO Identity Management System endpoint"
+        },
+        "ontograph.reasoner.engine": {
+          "type": "string",
+          "enum": [
+            "hermit",
+            "elk",
+            "auto"
+          ],
+          "default": "elk",
+          "enumDescriptions": [
+            "HermiT — full OWL 2 DL reasoner, best for medium ontologies",
+            "ELK — scalable EL reasoner, recommended for SNOMED CT scale",
+            "Auto — use ELK for ontologies with >5k classes, HermiT otherwise"
+          ],
+          "description": "OWL reasoner to use for classification and consistency checking"
+        },
+        "ontograph.reasoner.javaPath": {
+          "type": "string",
+          "default": "java",
+          "description": "Path to the Java executable (must be Java 11+)"
+        },
+        "ontograph.reasoner.jvmArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-Xmx4g"
+          ],
+          "description": "Extra JVM arguments for the reasoner process"
+        },
+        "ontograph.reasoner.timeoutSeconds": {
+          "type": "number",
+          "default": 600,
+          "description": "Timeout in seconds for reasoning operations (large ontologies may need 300–600 s)"
+        },
+        "ontograph.display.preferredLabelLanguage": {
+          "type": "string",
+          "default": "en",
+          "description": "Preferred language tag for rdfs:label display (e.g. 'en', 'en-gb')"
+        },
+        "ontograph.display.showIriOnHover": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show full IRI as tooltip when hovering over tree items"
+        },
+        "ontograph.graph.defaultDepth": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Default neighbourhood depth for graph visualization"
+        },
+        "ontograph.display.axiomEntityStyle": {
+          "type": "string",
+          "enum": [
+            "label",
+            "shortIri",
+            "fullIri"
+          ],
+          "default": "label",
+          "enumDescriptions": [
+            "Show rdfs:label (e.g. 'Koala'); multi-word labels use single quotes in the editor (e.g. 'Body structure')",
+            "Show short IRI with ontology base prefix (e.g. ':Koala') or built-in prefix (e.g. 'owl:Thing')",
+            "Show full IRI wrapped in angle brackets (e.g. '<http://example.org/animals#Koala>')"
+          ],
+          "description": "How entities are displayed and typed in axiom expressions (SubClassOf, EquivalentTo). Default is label."
+        },
+        "ontograph.largeOntologyThreshold": {
+          "type": "number",
+          "default": 50000,
+          "description": "Class count above which large-ontology optimisations are applied (Worker Thread parsing, ELK default)"
         }
       }
     }
@@ -72,10 +385,25 @@
     "package:vsix": "vsce package --out dist/"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
+    "@codemirror/autocomplete": "^6.20.2",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/lint": "^6.9.6",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.42.1",
     "@types/node": "18.x",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "cytoscape": "^3.33.3",
+    "cytoscape-dagre": "^2.5.0",
+    "dagre": "^0.8.5",
     "esbuild": "^0.18.0",
+    "fast-xml-parser": "^5.7.3",
+    "n3": "^1.17.2",
+    "sparqljs": "^3.7.4",
     "typescript": "^5.0.0",
-    "@vscode/vsce": "^3.0.0"
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
   }
 }

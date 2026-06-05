@@ -7,11 +7,10 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/extension",
-        "--extensionDevelopmentPath=${workspaceFolder}/apps/OntoGraph-lite"
+        "--disable-extension=ysgao.ontograph-lite"
       ],
       "outFiles": [
-        "${workspaceFolder}/extension/dist/**/*.js",
-        "${workspaceFolder}/apps/OntoGraph-lite/dist/**/*.js"
+        "${workspaceFolder}/extension/dist/**/*.js"
       ],
       "preLaunchTask": "build:extension"
     }

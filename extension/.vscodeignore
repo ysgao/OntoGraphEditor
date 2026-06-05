@@ -22,6 +22,10 @@
 # Workspace root: submodule source trees (bulk exclusion)
 ../apps/**
 
+# Workspace root: root level files
+../EndpointsAP.txt
+../.specify/**
+
 # Authoring UI webview assets (copied to extension/dist/authoring-ui by build-all)
 dist/authoring-ui/node_modules/**
 
