@@ -3,4 +3,4 @@
 	url = https://github.com/ysgao/authoring-ui.git
 [submodule "apps/OntoGraph-lite"]
 	path = apps/OntoGraph-lite
-	url = https://github.com/ysgao/OntoGraph-lite
+	url = https://github.com/ysgao/OntoGraph-lite-vscode
