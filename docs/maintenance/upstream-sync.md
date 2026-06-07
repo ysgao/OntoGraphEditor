@@ -96,16 +96,32 @@ cd ../..
 
 ---
 
-## Part 2: Sync apps/OntoGraph-lite with Origin
+## Part 2: Sync apps/OntoGraph-lite with Upstream
+
+`apps/OntoGraph-lite` tracks the fork `ysgao/OntoGraph-lite-vscode`, which contains VS Code-specific customizations (IPC bridge, entity focus sync). `origin` = the fork; `upstream` = `IHTSDO/OntoGraph-lite`.
+
+### Step 2.1 — Configure upstream remote (first time only)
 
 ```bash
 cd apps/OntoGraph-lite
-git fetch origin
-git merge origin/main
+git remote -v   # check if 'upstream' already exists
+```
+
+If `upstream` is not listed:
+
+```bash
+git remote add upstream https://github.com/ysgao/OntoGraph-lite
+```
+
+### Step 2.2 — Fetch upstream and merge into fork
+
+```bash
+git fetch upstream
+git merge upstream/main
 cd ../..
 ```
 
-This submodule has no VS Code customizations — conflicts are unexpected. If they arise, prefer upstream changes unless you have local commits you intentionally added.
+If conflicts arise in VS Code customization files (IPC bridge, entity sync handlers), preserve the fork's changes.
 
 ---
 

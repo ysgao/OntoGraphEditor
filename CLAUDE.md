@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **OntoGraph Editor** is a VS Code extension that embeds two Angular/web frontends as webview panels:
 - **AuthoringUI** (`apps/authoring-ui-vscode/`) — fork of `IHTSDO/authoring-ui`, clinical SNOMED CT terminology editor
-- **OntoGraph-lite** (`apps/OntoGraph-lite/`) — ontology graph visualization
+- **OntoGraph-lite** (`apps/OntoGraph-lite/`) — fork of `ysgao/OntoGraph-lite`, ontology graph visualization
 
 The extension host (`extension/`) brokers all communication between the two sandboxed webview panels via `postMessage`.
 
@@ -18,7 +18,7 @@ From repo root:
 npm run build-all        # Build Angular client then extension bundle
 npm run build:client     # Angular prod build only (apps/authoring-ui-vscode)
 npm run build:extension  # esbuild extension bundle only
-npm run package:vsix     # Package extension as .vsix (runs build-all first via vscode:prepublish)
+npm run package:vsix     # Full package: validate + build Angular + bundle extension (minified) + vsce pack
 ```
 ```
 npm run build-all && npm run package:vsix
@@ -53,7 +53,7 @@ extension/
 
 apps/
 ├── authoring-ui-vscode/     # Git submodule: fork of IHTSDO/authoring-ui
-└── OntoGraph-lite/          # Git submodule: graph visualization app
+└── OntoGraph-lite/          # Git submodule: fork of ysgao/OntoGraph-lite
 
 specs/
 └── 001-authoring-ui-integration/   # Active feature spec, plan, tasks
@@ -108,9 +108,11 @@ git fetch upstream
 git merge upstream/master   # VsCodeService customizations stay intact
 cd ../..
 
-# 2. Sync OntoGraph-lite (default branch is 'main')
+# 2. Sync OntoGraph-lite fork with upstream ysgao/OntoGraph-lite
+# origin = ysgao/OntoGraph-lite-vscode (fork), upstream = ysgao/OntoGraph-lite
 cd apps/OntoGraph-lite
-git fetch origin && git merge origin/main
+git fetch upstream
+git merge upstream/main   # fork VS Code customizations stay intact
 cd ../..
 
 # 3. Verify unified build

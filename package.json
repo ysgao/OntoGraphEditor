@@ -13,7 +13,7 @@
     "build:graph": "cd apps/OntoGraph-lite && npm run build",
     "validate-submodules": "./scripts/validate-submodules.sh",
     "build-all": "npm run validate-submodules && npm run build:client && npm run build:graph && npm run build:extension",
-    "package:vsix": "(cd extension && npx vsce package --out dist/)"
+    "package:vsix": "npm run validate-submodules && npm run build:client && npm run build:graph && (cd extension && npx vsce package --out dist/)"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
