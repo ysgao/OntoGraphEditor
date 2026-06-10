@@ -748,7 +748,13 @@ function handleMessage(
       // single-entity edit. Tree stays as a navigation cache — when the user
       // clicks an entity, sendLoadEntity reads fresh data from the runtime
       // model. Full refresh happens only on explicit reload of the ontology.
-      sendLoadEntity(p, model, msg.iri);
+      //
+      // For regular saves: bypass history so the display shows the just-saved
+      // model state. currentSnapshot still holds the pre-save state at this point
+      // (recordSave inside queueSyncWrite hasn't run yet), so we must skip it or
+      // the editor would show stale axioms. For autoSave (undo/redo triggered):
+      // use the history snapshot, which was set to the undo target by undo()/redo().
+      sendLoadEntity(p, model, msg.iri, /* bypassHistory */ !isAutoSave);
 
       if (saveHistory) {
         postUndoRedoState(p, saveHistory.canUndo, saveHistory.canRedo);
@@ -894,11 +900,13 @@ export function buildEntityPayload(model: OntologyModel, iri: string): EntitySna
   return payload;
 }
 
-function sendLoadEntity(p: vscode.WebviewPanel, model: OntologyModel, iri: string): void {
+function sendLoadEntity(p: vscode.WebviewPanel, model: OntologyModel, iri: string, bypassHistory = false): void {
   // Use the history's current snapshot when available so that undo/redo state
   // is preserved across navigations and same-file refreshes.  Fall back to a
   // fresh buildEntityPayload when no history exists yet (initial load).
-  const historySnapshot = entityHistoryMap.get(iri)?.currentSnapshot;
+  // bypassHistory=true skips the snapshot lookup and reads directly from the
+  // model — used after a regular save where currentSnapshot is still pre-save.
+  const historySnapshot = bypassHistory ? undefined : entityHistoryMap.get(iri)?.currentSnapshot;
   const payload = historySnapshot ?? buildEntityPayload(model, iri);
   if (!payload) { return; }
   const msg: LoadEntityMessage = { type: 'loadEntity', ...payload };
