@@ -135,10 +135,34 @@ export interface PositionHints {
   regAxioms: Map<string, number>;
 }
 
+/** Sent by the extension to ask whether the editor has unsaved changes. */
+export interface QueryDirtyMessage { type: 'queryDirty' }
+/** Sent by the extension to request the webview to save the current entity (same as user clicking Save). */
+export interface RequestSaveMessage { type: 'requestSave' }
+/** Sent by the webview in response to QueryDirtyMessage. */
+export interface DirtyStateMessage { type: 'dirtyState'; isDirty: boolean }
+
 export interface UndoRequestMessage { type: 'undoRequest' }
 export interface RedoRequestMessage { type: 'redoRequest' }
 export interface UndoRedoStateMessage { type: 'undoRedoState'; canUndo: boolean; canRedo: boolean }
 export interface AutoSaveMessage { type: 'autoSave' }
+
+/** Sent by the webview when the user edits the IRI field and confirms the change. */
+export interface RenameIriMessage {
+  type: 'renameIri';
+  currentIri: string;
+  newIri: string;
+}
+
+/** Sent by the extension in response to RenameIriMessage. */
+export interface IriRenameResultMessage {
+  type: 'iriRenameResult';
+  success: boolean;
+  /** The accepted new IRI; only present when success === true. */
+  newIri?: string;
+  /** Human-readable error; only present when success === false. */
+  error?: string;
+}
 
 export type EntityEditorExtToWebview =
   | LoadEntityMessage
@@ -146,7 +170,10 @@ export type EntityEditorExtToWebview =
   | ValidationResultMessage
   | SaveDraftErrorMessage
   | UndoRedoStateMessage
-  | AutoSaveMessage;
+  | AutoSaveMessage
+  | IriRenameResultMessage
+  | QueryDirtyMessage
+  | RequestSaveMessage;
 export type EntityEditorWebviewToExt =
   | EntityEditorReadyMessage
   | RequestCompletionMessage
@@ -156,4 +183,6 @@ export type EntityEditorWebviewToExt =
   | OpenExternalMessage
   | SaveEntityMessage
   | UndoRequestMessage
-  | RedoRequestMessage;
+  | RedoRequestMessage
+  | RenameIriMessage
+  | DirtyStateMessage;

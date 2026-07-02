@@ -626,10 +626,12 @@ export function applyIncrementalSegmentUpdate(
     // Add new lines from newText. Their absolute positions are computed in
     // post-edit coordinates: line N is at edit.oldStartLine + N, char offset
     // edit.oldStartChar + (line start within newText).
-    const localStarts = lineStartsIn(edit.newText);
-    for (let i = 0; i < localStarts.length; i++) {
-      keptIndices.push(edit.oldStartLine + i);
-      keptStarts.push(edit.oldStartChar + localStarts[i]);
+    if (removedLines > 0 || newLineCount > 0) {
+      const localStarts = lineStartsIn(edit.newText);
+      for (let i = 0; i < localStarts.length; i++) {
+        keptIndices.push(edit.oldStartLine + i);
+        keptStarts.push(edit.oldStartChar + localStarts[i]);
+      }
     }
 
     if (keptIndices.length === 0) {
