@@ -147,6 +147,48 @@
         "icon": "$(add)"
       },
       {
+        "command": "ontograph.addClass",
+        "title": "OntoGraph: Add Class...",
+        "category": "OntoGraph",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ontograph.addObjectProperty",
+        "title": "OntoGraph: Add Object Property...",
+        "category": "OntoGraph",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ontograph.addDataProperty",
+        "title": "OntoGraph: Add Data Property...",
+        "category": "OntoGraph",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ontograph.addAnnotationProperty",
+        "title": "OntoGraph: Add Annotation Property...",
+        "category": "OntoGraph",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ontograph.addIndividual",
+        "title": "OntoGraph: Add Individual...",
+        "category": "OntoGraph",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ontograph.navigateBack",
+        "title": "Go Back",
+        "icon": "$(arrow-left)",
+        "category": "OntoGraph"
+      },
+      {
+        "command": "ontograph.navigateForward",
+        "title": "Go Forward",
+        "icon": "$(arrow-right)",
+        "category": "OntoGraph"
+      },
+      {
         "command": "ontograph.exportOntology",
         "title": "OntoGraph: Export Ontology As...",
         "icon": "$(export)"
@@ -211,6 +253,48 @@
           "command": "ontograph.loadOntologyFile",
           "when": "view == ontograph.inferredClasses",
           "group": "navigation@-1"
+        },
+        {
+          "command": "ontograph.addClass",
+          "when": "view == ontograph.classes",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ontograph.addClass",
+          "when": "view == ontograph.inferredClasses",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ontograph.addObjectProperty",
+          "when": "view == ontograph.objectProperties",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ontograph.addDataProperty",
+          "when": "view == ontograph.dataProperties",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ontograph.addAnnotationProperty",
+          "when": "view == ontograph.annotationProperties",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ontograph.addIndividual",
+          "when": "view == ontograph.individuals",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ontograph.navigateBack",
+          "when": "view =~ /^ontograph\\./",
+          "group": "navigation@-3",
+          "enablement": "ontograph.canNavigateBack"
+        },
+        {
+          "command": "ontograph.navigateForward",
+          "when": "view =~ /^ontograph\\./",
+          "group": "navigation@-2",
+          "enablement": "ontograph.canNavigateForward"
         }
       ],
       "view/item/context": [

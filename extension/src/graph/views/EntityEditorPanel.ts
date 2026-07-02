@@ -10,19 +10,22 @@ import type {
 } from '../model/OntologyModel';
 import { createEmptyModel, getLabel } from '../model/OntologyModel';
 import { OntologyIndex } from '../model/OntologyIndex';
-import { collectLogicalLines } from '../utils/ManchesterFormatting';
+import { collectLogicalLines, sortManchesterConjuncts } from '../utils/ManchesterFormatting';
 import type { ReasonerBridge } from '../reasoner/ReasonerBridge';
 import { normalizeExpression, renderExpressionWithEntityRefs, type AxiomDisplayStyle } from '../model/AxiomDisplay';
 import { syncAnnotationsToDocument } from '../sync/AnnotationSync';
 import { syncAxiomsToDocument } from '../sync/AxiomSync';
 import { queueSyncWrite } from '../sync/reloadGuard';
 import { writeTextStreamed } from '../sync/streamWrite';
+import { renameIri } from '../sync/IriRenameSync';
+import { isValidAbsoluteIri } from '../utils/namespaceUtils';
 import type { EntitySegment } from '../model/OntologyModel';
 import {
   buildModelSegmentIndexAsync,
   applyIncrementalSegmentUpdate,
   type EditSummary,
 } from '../model/SegmentIndex';
+import { highlightSyncedRanges, clearSyncHighlight } from './syncHighlight';
 import { EntityEditHistory } from './EntityEditHistory';
 import type {
   EntityEditorExtToWebview,
@@ -34,6 +37,8 @@ import type {
   CompletionResultMessage,
   ValidationResultMessage,
   SaveDraftErrorMessage,
+  IriRenameResultMessage,
+  DirtyStateMessage,
 } from './EntityEditorMessages';
 
 // ── Singleton panel ───────────────────────────────────────────────────────────
@@ -44,9 +49,35 @@ export function setReasonerBridge(bridge: ReasonerBridge | undefined): void {
   reasonerBridge = bridge;
 }
 
+let _refreshAllViews: ((model: OntologyModel) => void) | undefined;
+
+export function setRefreshAllViews(fn: (model: OntologyModel) => void): void {
+  _refreshAllViews = fn;
+}
+
 let panel: vscode.WebviewPanel | undefined;
 let lastIri = '';
-// Always tracks the most recent model provided by showEntityInfo or
+
+// ── Dirty-guard state ─────────────────────────────────────────────────────────
+
+/** IRI the user wants to navigate to, held while the dirty-guard dialog is open. */
+let pendingNavigationIri: string | null = null;
+/** Resolver for the in-flight queryDirty round-trip. Cleared once resolved. */
+let dirtyQueryResolve: ((isDirty: boolean) => void) | null = null;
+
+/** Returns the IRI currently shown in the Entity Editor (empty string if none). */
+export function getLastIri(): string { return lastIri; }
+
+/**
+ * Queries the open Entity Editor webview for its dirty state.
+ * Returns false immediately if no panel is open.
+ */
+export function queryEntityEditorDirty(): Promise<boolean> {
+  if (!panel) { return Promise.resolve(false); }
+  return queryDirty(panel);
+}
+
+// ── Always tracks the most recent model provided by showEntityInfo or
 // refreshEntityEditorIfOpen. handleMessage uses this instead of the closure-
 // captured model so that save mutations always target the current activeModel,
 // even after handleDocument has re-parsed and replaced the original model object.
@@ -92,18 +123,6 @@ const FULL_REBUILD_EVERY_N_SAVES = 10;
 
 let _cachedIndexModel: OntologyModel | undefined;
 let _cachedIndex: OntologyIndex | undefined;
-
-// Decoration applied to lines modified by the entity editor sync.
-// Display-only: does not affect file content or OWL semantics.
-// Styled like VS Code's "modified" gutter indicator (left border + overview ruler).
-const syncHighlightDecoration = vscode.window.createTextEditorDecorationType({
-  borderStyle: 'none none none solid',
-  borderWidth: '0 0 0 3px',
-  borderColor: new vscode.ThemeColor('editorOverviewRuler.modifiedForeground'),
-  overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.modifiedForeground'),
-  overviewRulerLane: vscode.OverviewRulerLane.Left,
-  isWholeLine: true,
-});
 
 function getIndex(model: OntologyModel): OntologyIndex {
   if (model !== _cachedIndexModel || !_cachedIndex) {
@@ -256,6 +275,68 @@ export async function refreshEntityEditorIfOpen(
     // Same file (classify, reload, incremental update) — preserve history.
     const h = entityHistoryMap.get(lastIri);
     postUndoRedoState(panel, h?.canUndo ?? false, h?.canRedo ?? false);
+  }
+}
+
+// ── Dirty guard helpers ───────────────────────────────────────────────────────
+
+function queryDirty(p: vscode.WebviewPanel): Promise<boolean> {
+  return new Promise(resolve => {
+    dirtyQueryResolve = resolve;
+    void p.webview.postMessage({ type: 'queryDirty' } as EntityEditorExtToWebview);
+  });
+}
+
+/**
+ * Guard wrapper around showEntityInfo that intercepts navigation when the
+ * Entity Editor has unsaved changes and shows a Save / Discard / Cancel dialog.
+ *
+ * Returns 'navigated' when navigation proceeds (Save, Discard, or clean editor),
+ * and 'cancelled' when the user dismissed the dialog.
+ *
+ * @param cancelRevealCallback  Optional: called on Cancel to restore tree selection.
+ */
+export async function guardedShowEntityInfo(
+  context: vscode.ExtensionContext,
+  model: OntologyModel,
+  iri: string,
+  cancelRevealCallback?: () => void,
+  preserveFocus = false,
+): Promise<'navigated' | 'cancelled'> {
+  // Skip guard: no panel open, no previous entity, or same entity
+  if (!panel || !lastIri || iri === lastIri) {
+    showEntityInfo(context, model, iri, preserveFocus);
+    return 'navigated';
+  }
+
+  const isDirty = await queryDirty(panel);
+  if (!isDirty) {
+    showEntityInfo(context, model, iri, preserveFocus);
+    return 'navigated';
+  }
+
+  const entity = findEntity(model, lastIri);
+  const label = entity ? getLabel(entity) : lastIri;
+
+  const choice = await vscode.window.showWarningMessage(
+    `"${label}" has unsaved changes. What would you like to do?`,
+    { modal: true },
+    'Save',
+    'Discard',
+    'Continue Editing',
+  );
+
+  if (choice === 'Save') {
+    pendingNavigationIri = iri;
+    void panel.webview.postMessage({ type: 'requestSave' } as EntityEditorExtToWebview);
+    return 'navigated';
+  } else if (choice === 'Discard') {
+    showEntityInfo(context, model, iri, preserveFocus);
+    return 'navigated';
+  } else {
+    // 'Continue Editing' or dismissed via Escape/X
+    cancelRevealCallback?.();
+    return 'cancelled';
   }
 }
 
@@ -462,6 +543,123 @@ function handleMessage(
       break;
     }
 
+    case 'renameIri': {
+      const { currentIri, newIri } = msg;
+      const postError = (error: string) => {
+        void p.webview.postMessage({
+          type: 'iriRenameResult', success: false, error,
+        } as IriRenameResultMessage as EntityEditorExtToWebview);
+      };
+
+      // Validation
+      if (!newIri) { postError('IRI must not be empty'); break; }
+      if (!isValidAbsoluteIri(newIri)) { postError('Not a valid IRI'); break; }
+
+      // Format guard
+      if (model.sourceFormat === 'rdf-xml' || model.sourceFormat === 'owl-xml') {
+        postError('IRI rename is not supported for OWL/XML format; convert to OWL Functional Syntax first.');
+        break;
+      }
+
+      // Duplicate check
+      const renameIndex = getIndex(model);
+      if (renameIndex.getByIri(newIri) !== undefined) {
+        postError('An entity with this IRI already exists');
+        break;
+      }
+
+      // Apply rename asynchronously
+      const renameUri = vscode.Uri.parse(model.sourceUri);
+      let renameWriteOk = false;
+      void queueSyncWrite(renameUri.toString(), async () => {
+        const oldRawContent = model.rawContent;
+        const newText = renameIri(oldRawContent, currentIri, newIri);
+        model.rawContent = newText;
+
+        // Move entity from old IRI to new IRI in the correct Map
+        const mapKeys = ['classes', 'objectProperties', 'dataProperties', 'annotationProperties', 'individuals'] as const;
+        let movedMapKey: typeof mapKeys[number] | undefined;
+        for (const mapKey of mapKeys) {
+          const map = model[mapKey] as Map<string, { iri: string }>;
+          const entity = map.get(currentIri);
+          if (entity) {
+            entity.iri = newIri;
+            map.delete(currentIri);
+            map.set(newIri, entity);
+            movedMapKey = mapKey;
+            break;
+          }
+        }
+
+        // Patch all other entities' axiom arrays that reference currentIri so that
+        // saving a referencing entity later does not revert the rename in the file.
+        updateIriReferencesInModel(model, currentIri, newIri);
+
+        // Force segment index rebuild (async to avoid blocking the event loop)
+        model.entitySegments = undefined;
+        if (model.sourceFormat === 'functional') {
+          await buildModelSegmentIndexAsync(model);
+        }
+
+        // Invalidate panel's cached index
+        _cachedIndexModel = undefined;
+        _cachedIndex = undefined;
+
+        try {
+          await writeTextStreamed(renameUri, newText);
+          renameWriteOk = true;
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error(`[OntoGraph rename] writeFile FAILED: ${errMsg}`);
+          void vscode.window.showErrorMessage(`OntoGraph: cannot write file — ${errMsg}.`);
+
+          // Rollback in-memory mutations so the model stays consistent with the on-disk file
+          model.rawContent = oldRawContent;
+          if (movedMapKey) {
+            const map = model[movedMapKey] as Map<string, { iri: string }>;
+            const renamedEntity = map.get(newIri);
+            if (renamedEntity) {
+              renamedEntity.iri = currentIri;
+              map.delete(newIri);
+              map.set(currentIri, renamedEntity);
+            }
+          }
+          updateIriReferencesInModel(model, newIri, currentIri);
+          model.entitySegments = undefined;
+          _cachedIndexModel = undefined;
+          _cachedIndex = undefined;
+
+          postError(`Write failed: ${errMsg}`);
+        }
+      }).then(() => {
+        if (!renameWriteOk) { return; }
+
+        // Update lastIri so the panel tracks the renamed entity
+        lastIri = newIri;
+
+        // Refresh tree providers
+        _refreshAllViews?.(model);
+
+        void p.webview.postMessage({
+          type: 'iriRenameResult', success: true, newIri,
+        } as IriRenameResultMessage as EntityEditorExtToWebview);
+      }).catch((err: unknown) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        postError(`Rename failed: ${errMsg}`);
+      });
+      break;
+    }
+
+    case 'dirtyState': {
+      const typed = msg as DirtyStateMessage;
+      if (dirtyQueryResolve) {
+        const resolve = dirtyQueryResolve;
+        dirtyQueryResolve = null;
+        resolve(typed.isDirty);
+      }
+      break;
+    }
+
     case 'navigate':
       showEntityInfo(context, model, msg.iri);
       void vscode.commands.executeCommand('ontograph.focusEntity', { iri: msg.iri });
@@ -551,15 +749,17 @@ function handleMessage(
               .map(e => normalizeExpression(e, model, index)).filter(e => e.length > 0);
           } else {
             const validSuper = filterSection(msg.superClassExpressions, 'superClassExpressions');
-            const splitSuper = splitNormalizedExpressions(validSuper.map(e => normalizeExpression(e, model, index)));
+            const splitSuper = splitNormalizedExpressions(
+              validSuper.map(e => normalizeExpression(sortManchesterConjuncts(e), model, index)));
             cls.superClassIris = splitSuper.namedClassIris;
             cls.superClassExpressions = splitSuper.complexExpressions;
             const validEquiv = filterSection(msg.equivalentClassExpressions, 'equivalentClassExpressions');
-            const splitEquiv = splitNormalizedExpressions(validEquiv.map(e => normalizeExpression(e, model, index)));
+            const splitEquiv = splitNormalizedExpressions(
+              validEquiv.map(e => normalizeExpression(sortManchesterConjuncts(e), model, index)));
             cls.equivalentClassIris = splitEquiv.namedClassIris;
             cls.equivalentClassExpressions = splitEquiv.complexExpressions;
             const validGci = filterSection(msg.gciExpressions, 'gciExpressions');
-            cls.gciExpressions = validGci.map(e => normalizeExpression(e, model, index));
+            cls.gciExpressions = validGci.map(e => normalizeExpression(sortManchesterConjuncts(e), model, index));
             cls.disjointClassIris = msg.disjointClassIris ?? [];
           }
           break;
@@ -723,6 +923,16 @@ function handleMessage(
               _incrementalSavesSinceRebuild = 0;
               await buildModelSegmentIndexAsync(model);
             }
+
+            // Complete deferred navigation triggered by the dirty-guard "Save" choice.
+            if (pendingNavigationIri && currentPanelModel) {
+              const targetIri = pendingNavigationIri;
+              pendingNavigationIri = null;
+              if (writeOk) {
+                showEntityInfo(context, currentPanelModel, targetIri);
+              }
+              // On write failure: pendingNavigationIri cleared; error already shown above.
+            }
           }
           highlightSyncedRanges(uri, changedRanges);
 
@@ -736,6 +946,7 @@ function handleMessage(
             const newSnapshot = buildEntityPayload(model, msg.iri);
             if (newSnapshot) { saveHistory.updateCurrentSnapshot(newSnapshot); }
           }
+
         } finally {
           _annotationSyncActive = false;
           savedEntityState.delete(msg.iri);
@@ -967,35 +1178,66 @@ function findEntity(model: OntologyModel, iri: string) {
     ?? model.individuals.get(iri);
 }
 
-// Track the URI whose lines are currently decorated so we can clear them on the
-// next sync or when the entity editor panel is closed.
-let _decoratedUri: string | undefined;
-
-function highlightSyncedRanges(uri: vscode.Uri, ranges: vscode.Range[]): void {
-  // Clear any decoration from a previous sync (possibly on a different document).
-  clearSyncHighlight();
-
-  if (ranges.length === 0) { return; }
-  _decoratedUri = uri.toString();
-  const editors = vscode.window.visibleTextEditors.filter(
-    editor => editor.document.uri.toString() === uri.toString()
-  );
-  for (const editor of editors) {
-    editor.setDecorations(syncHighlightDecoration, ranges);
+/**
+ * Patch every entity's axiom arrays and Manchester expression strings to replace
+ * occurrences of `oldIri` with `newIri`. Called after an IRI rename so that
+ * referencing entities stay consistent with the updated rawContent; without this,
+ * AxiomSync would revert the rename the next time any referencing entity is saved.
+ */
+function updateIriReferencesInModel(model: OntologyModel, oldIri: string, newIri: string): void {
+  function replaceInArray(arr: string[]): void {
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] === oldIri) { arr[i] = newIri; }
+    }
   }
-}
+  function replaceInExpressions(arr: string[]): void {
+    const from = `<${oldIri}>`;
+    const to = `<${newIri}>`;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i].includes(from)) { arr[i] = arr[i].split(from).join(to); }
+    }
+  }
 
-function clearSyncHighlight(): void {
-  if (!_decoratedUri) { return; }
-  const target = _decoratedUri;
-  _decoratedUri = undefined;
-  for (const editor of vscode.window.visibleTextEditors) {
-    if (editor.document.uri.toString() === target) {
-      editor.setDecorations(syncHighlightDecoration, []);
+  for (const cls of model.classes.values()) {
+    replaceInArray(cls.superClassIris);
+    replaceInArray(cls.equivalentClassIris);
+    replaceInArray(cls.disjointClassIris);
+    replaceInExpressions(cls.superClassExpressions);
+    replaceInExpressions(cls.equivalentClassExpressions);
+    replaceInExpressions(cls.gciExpressions);
+  }
+  for (const prop of model.objectProperties.values()) {
+    replaceInArray(prop.superPropertyIris);
+    replaceInArray(prop.domainIris);
+    replaceInArray(prop.rangeIris);
+    if (prop.inverseOfIri === oldIri) { prop.inverseOfIri = newIri; }
+    if (prop.equivalentPropertyIris) { replaceInArray(prop.equivalentPropertyIris); }
+    if (prop.disjointPropertyIris) { replaceInArray(prop.disjointPropertyIris); }
+    if (prop.propertyChains) {
+      for (const chain of prop.propertyChains) { replaceInArray(chain); }
+    }
+  }
+  for (const prop of model.dataProperties.values()) {
+    replaceInArray(prop.superPropertyIris);
+    replaceInArray(prop.domainIris);
+    replaceInArray(prop.rangeIris);
+  }
+  for (const prop of model.annotationProperties.values()) {
+    replaceInArray(prop.superPropertyIris);
+    replaceInArray(prop.domainIris);
+    replaceInArray(prop.rangeIris);
+  }
+  for (const ind of model.individuals.values()) {
+    replaceInArray(ind.classIris);
+    for (const a of ind.objectPropertyAssertions) {
+      if (a.propertyIri === oldIri) { a.propertyIri = newIri; }
+      if (a.targetIri === oldIri) { a.targetIri = newIri; }
+    }
+    for (const a of ind.dataPropertyAssertions) {
+      if (a.propertyIri === oldIri) { a.propertyIri = newIri; }
     }
   }
 }
-
 
 function hasInferredHierarchy(model: OntologyModel): boolean {
   for (const children of model.inferredSubClasses.values()) {

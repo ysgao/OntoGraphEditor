@@ -10,9 +10,11 @@ import { ReasonerBridge } from './reasoner/ReasonerBridge';
 import { classifyOntology } from './commands/classifyOntology';
 import { checkConsistency } from './commands/checkConsistency';
 import { exportOntology } from './commands/exportOntology';
-import { addEntity } from './commands/addEntity';
+import { addEntity, createEntity } from './commands/addEntity';
 import { openGraphView, updateGraphPanel } from './commands/openVisualization';
-import { showEntityInfo, refreshEntityEditorIfOpen, setReasonerBridge } from './views/EntityEditorPanel';
+import { showEntityInfo, guardedShowEntityInfo, getLastIri, queryEntityEditorDirty, refreshEntityEditorIfOpen, setReasonerBridge, setRefreshAllViews } from './views/EntityEditorPanel';
+import { NavigationHistory } from './views/NavigationHistory';
+import { getSearchQuery, setSearchQuery, resetSearchQuery } from './commands/searchQueryState';
 import { openSparqlEditor } from './commands/openSparqlEditor';
 import { openDLQuery } from './commands/openDLQuery';
 import { updateDLQueryModel } from './views/DLQueryPanel';
@@ -29,6 +31,8 @@ import { buildModelSegmentIndex } from './model/SegmentIndex';
 
 export let outputChannel: vscode.OutputChannel;
 
+const navigationHistory = new NavigationHistory();
+
 let activeModel: OntologyModel | undefined;
 let activeIndex: OntologyIndex | undefined;
 let activeFileWatcher: vscode.FileSystemWatcher | undefined;
@@ -38,6 +42,9 @@ export function activate(context: vscode.ExtensionContext): void {
   outputChannel = vscode.window.createOutputChannel('OntoGraph');
   context.subscriptions.push(outputChannel);
   outputChannel.appendLine('OntoGraph activating…');
+
+  void vscode.commands.executeCommand('setContext', 'ontograph.canNavigateBack', false);
+  void vscode.commands.executeCommand('setContext', 'ontograph.canNavigateForward', false);
 
   // --- Tree data providers ---
   const classProvider = new ClassHierarchyProvider();
@@ -53,6 +60,11 @@ export function activate(context: vscode.ExtensionContext): void {
     return /\/id\/(\d+)$/.exec(iri)?.[1];
   }
 
+  function updateNavContextKeys(): void {
+    void vscode.commands.executeCommand('setContext', 'ontograph.canNavigateBack', navigationHistory.canGoBack);
+    void vscode.commands.executeCommand('setContext', 'ontograph.canNavigateForward', navigationHistory.canGoForward);
+  }
+
   function onEntitySelected(item: unknown): void {
     const iri = (item as { iri?: string } | undefined)?.iri;
     if (!iri || !activeModel) { return; }
@@ -60,16 +72,31 @@ export function activate(context: vscode.ExtensionContext): void {
       suppressNextSelection = false;
       return;
     }
-    showEntityInfo(context, activeModel, iri);
-    if (activeModel.classes.has(iri)) {
-      classProvider.setFocus(iri);
-      inferredProvider.setFocus(iri);
-    }
-    const id = extractSctid(iri) ?? iri;
-    vscode.commands.executeCommand(
-      'ontographEditor.ipcRoute',
-      { command: 'GRAPH_NODE_SELECT', payload: { id } }
-    ).then(undefined, () => {});
+    const prevIri = getLastIri();
+    const prevEntityType = prevIri ? entityTypeForIri(prevIri) : undefined;
+    void (async () => {
+      const result = await guardedShowEntityInfo(
+        context, activeModel!, iri,
+        prevIri && prevEntityType
+          ? () => {
+              suppressNextSelection = true;
+              revealInTreeView(prevIri, prevEntityType);
+            }
+          : undefined,
+      );
+      if (result === 'cancelled') { return; }
+      navigationHistory.push(iri);
+      updateNavContextKeys();
+      if (activeModel!.classes.has(iri)) {
+        classProvider.setFocus(iri);
+        inferredProvider.setFocus(iri);
+      }
+      const id = extractSctid(iri) ?? iri;
+      vscode.commands.executeCommand(
+        'ontographEditor.ipcRoute',
+        { command: 'GRAPH_NODE_SELECT', payload: { id } }
+      ).then(undefined, () => {});
+    })();
   }
 
   function entityTypeForIri(iri: string): EntityType | undefined {
@@ -118,6 +145,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const reasonerBridge = new ReasonerBridge(context.extensionPath);
   context.subscriptions.push(reasonerBridge);
   setReasonerBridge(reasonerBridge);
+  setRefreshAllViews(refreshAllViews);
 
   // --- Persistent stats status bar item ---
   const statsBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -154,6 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!activeModel) { return; }
     const uri = vscode.Uri.parse(activeModel.sourceUri);
     const filename = uri.fsPath.split(/[\\/]/).pop() ?? 'ontology';
+    const hadUnsavedEdits = await queryEntityEditorDirty();
 
     if (activeModel.sourceMtimeMs !== undefined && activeModel.sourceSize !== undefined) {
       try {
@@ -203,6 +232,9 @@ export function activate(context: vscode.ExtensionContext): void {
           });
         },
       );
+      if (hadUnsavedEdits) {
+        void vscode.window.showInformationMessage('OntoGraph: Ontology reloaded — your unsaved edits have been discarded.');
+      }
       vscode.window.setStatusBarMessage('$(check) Ontology reloaded from disk', 8000);
     } finally {
       await vscode.commands.executeCommand('setContext', 'ontograph.reloading', false);
@@ -311,9 +343,10 @@ export function activate(context: vscode.ExtensionContext): void {
       const qp = vscode.window.createQuickPick<SearchQuickPickItem>();
       qp.placeholder = 'Search by name or label…';
       qp.matchOnDescription = true;
-      qp.onDidChangeValue(value => {
-        if (!value.trim()) { qp.items = []; return; }
-        const entities = activeIndex!.searchByLabel(value.trim(), 100);
+
+      function runSearch(query: string): void {
+        if (!query.trim()) { qp.items = []; return; }
+        const entities = activeIndex!.searchByLabel(query.trim(), 100);
         qp.items = entities.map(e => ({
           label: getLabel(e, preferredLang),
           description: e.type,
@@ -321,17 +354,26 @@ export function activate(context: vscode.ExtensionContext): void {
           entityType: e.type,
           alwaysShow: true,
         }));
+      }
+
+      qp.onDidChangeValue(value => {
+        setSearchQuery(value);
+        runSearch(value);
       });
       qp.onDidAccept(() => {
         const sel = qp.selectedItems[0];
         if (sel && activeModel) {
-          showEntityInfo(context, activeModel, sel.iri);
-          revealInTreeView(sel.iri, sel.entityType);
+          void guardedShowEntityInfo(context, activeModel, sel.iri).then(result => {
+            if (result === 'navigated') { revealInTreeView(sel.iri, sel.entityType); }
+          });
         }
         qp.hide();
         qp.dispose();
       });
       qp.onDidHide(() => qp.dispose());
+
+      qp.value = getSearchQuery();
+      if (getSearchQuery()) { runSearch(getSearchQuery()); }
       qp.show();
     }),
 
@@ -349,9 +391,44 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const fromIpc = item?.fromIpc ?? false;
       if (fromIpc) { suppressNextSelection = true; }
-      showEntityInfo(context, activeModel, iri, fromIpc);
-      revealInTreeView(iri, entityType, fromIpc);
+      void guardedShowEntityInfo(context, activeModel, iri, undefined, fromIpc).then(result => {
+        if (result === 'navigated') { revealInTreeView(iri, entityType, fromIpc); }
+      });
       updateGraphPanel(activeModel, iri, preferredLang);
+    }),
+
+    vscode.commands.registerCommand('ontograph.navigateBack', () => {
+      const iri = navigationHistory.back();
+      updateNavContextKeys();
+      if (iri && activeModel) {
+        suppressNextSelection = true;
+        void guardedShowEntityInfo(context, activeModel, iri).then(result => {
+          if (result === 'cancelled') {
+            navigationHistory.forward();
+            updateNavContextKeys();
+          } else {
+            const entityType = entityTypeForIri(iri);
+            if (entityType) { revealInTreeView(iri, entityType); }
+          }
+        });
+      }
+    }),
+
+    vscode.commands.registerCommand('ontograph.navigateForward', () => {
+      const iri = navigationHistory.forward();
+      updateNavContextKeys();
+      if (iri && activeModel) {
+        suppressNextSelection = true;
+        void guardedShowEntityInfo(context, activeModel, iri).then(result => {
+          if (result === 'cancelled') {
+            navigationHistory.back();
+            updateNavContextKeys();
+          } else {
+            const entityType = entityTypeForIri(iri);
+            if (entityType) { revealInTreeView(iri, entityType); }
+          }
+        });
+      }
     }),
 
     vscode.commands.registerCommand('ontograph.loadOntologyFile', (prefillUri?: vscode.Uri) => {
@@ -379,6 +456,47 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('ontograph.addEntity', () =>
       addEntity(activeModel)),
 
+    vscode.commands.registerCommand('ontograph.addClass', () => {
+      if (!activeModel || !activeIndex) { void vscode.window.showWarningMessage('OntoGraph: No ontology loaded.'); return; }
+      const parentIri = classView.selection[0]?.iri ?? inferredView.selection[0]?.iri;
+      void createEntity('class', parentIri, context, activeModel, activeIndex, (m, iri) => {
+        refreshAllViews(m);
+        showEntityInfo(context, m, iri);
+      });
+    }),
+
+    vscode.commands.registerCommand('ontograph.addObjectProperty', () => {
+      if (!activeModel || !activeIndex) { void vscode.window.showWarningMessage('OntoGraph: No ontology loaded.'); return; }
+      void createEntity('objectProperty', objectPropView.selection[0]?.iri, context, activeModel, activeIndex, (m, iri) => {
+        refreshAllViews(m);
+        showEntityInfo(context, m, iri);
+      });
+    }),
+
+    vscode.commands.registerCommand('ontograph.addDataProperty', () => {
+      if (!activeModel || !activeIndex) { void vscode.window.showWarningMessage('OntoGraph: No ontology loaded.'); return; }
+      void createEntity('dataProperty', dataPropView.selection[0]?.iri, context, activeModel, activeIndex, (m, iri) => {
+        refreshAllViews(m);
+        showEntityInfo(context, m, iri);
+      });
+    }),
+
+    vscode.commands.registerCommand('ontograph.addAnnotationProperty', () => {
+      if (!activeModel || !activeIndex) { void vscode.window.showWarningMessage('OntoGraph: No ontology loaded.'); return; }
+      void createEntity('annotationProperty', annotationPropView.selection[0]?.iri, context, activeModel, activeIndex, (m, iri) => {
+        refreshAllViews(m);
+        showEntityInfo(context, m, iri);
+      });
+    }),
+
+    vscode.commands.registerCommand('ontograph.addIndividual', () => {
+      if (!activeModel || !activeIndex) { void vscode.window.showWarningMessage('OntoGraph: No ontology loaded.'); return; }
+      void createEntity('individual', individualView.selection[0]?.iri, context, activeModel, activeIndex, (m, iri) => {
+        refreshAllViews(m);
+        showEntityInfo(context, m, iri);
+      });
+    }),
+
     vscode.commands.registerCommand('ontograph.openGraph', (item?: { iri?: string }) =>
       openGraphView(context, activeModel, item?.iri)),
 
@@ -392,7 +510,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const iri = item?.iri;
       if (!iri) { void vscode.window.showWarningMessage('OntoGraph: Right-click an entity to open the editor.'); return; }
       if (!activeModel) { void vscode.window.showWarningMessage('OntoGraph: No ontology loaded.'); return; }
-      showEntityInfo(context, activeModel, iri);
+      void guardedShowEntityInfo(context, activeModel, iri);
     }),
 
     vscode.commands.registerCommand('ontograph.copyIri', (item?: { iri?: string }) => {
@@ -468,6 +586,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const onLoadedCallback = async (model: OntologyModel): Promise<void> => {
     activeModel = model;
+    navigationHistory.clear();
+    resetSearchQuery();
     refreshAllViews(model);
     await refreshEntityEditorIfOpen(model, context);
     updateDLQueryModel(model, activeIndex);

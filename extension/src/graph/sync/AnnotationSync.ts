@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { OWLEntity, EntitySegment } from '../model/OntologyModel';
-import { BUILTIN_ANNOTATION_PROP_IRIS } from '../model/OntologyModel';
+import { BUILTIN_ANNOTATION_PROP_IRIS, getLabel } from '../model/OntologyModel';
 import { temporaryClassIris } from '../views/DLQueryState.js';
 import { beginSyncWrite, endSyncWrite } from './reloadGuard';
 import { RawTextDocument, applyWorkspaceEditsToText, countLineDelta, type OffsetEdit } from './RawTextDocument';
@@ -18,6 +18,7 @@ const RDFS_TOKEN_TO_IRI = new Map<string, string>(
 );
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
+
 
 function fmtLiteral(value: string, lang?: string): string {
   const esc = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -329,23 +330,98 @@ function syncFunctional(
   const toRemove = fileItems.filter(f => !modelKeySet.has(f.key));
   const toAdd = modelItems.filter(m => !fileKeySet.has(m.key));
 
-  if (toRemove.length === 0 && toAdd.length === 0) return null;
+  // Detect whether the cluster header bracket `# TypeLabel: <IRI> (label)` is stale.
+  // The bracket group is optional: a matching `# TypeLabel: <IRI>` header gets a
+  // `(label)` appended when the entity has an explicit label, and an existing
+  // bracket is rewritten when its text no longer matches the current label.
+  const newDisplayLabel = getLabel(entity);
+  const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
+  const escapedIri = entity.iri.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clusterHeaderRe = new RegExp(
+    `^([ \\t]*#[ \\t]+${typeLabel}:[ \\t]+<${escapedIri}>)[ \\t]*(?:\\(([^)\\n]*)\\))?[ \\t]*$`,
+    'm',
+  );
+  const headerM = clusterHeaderRe.exec(text);
+  // newDisplayLabel is getLabel(entity) — falls back to local name when no explicit labels.
+  // Compare directly: if the bracket already shows the right display label, nothing to do.
+  // This handles stale-label removal: bracket "(OldLabel)" != local-name "Cat" → update to "(Cat)".
+  const existingBracket = headerM?.[2] ?? '';
+  const headerNeedsUpdate = headerM !== null && existingBracket !== newDisplayLabel;
+  const headerEdit = headerNeedsUpdate && headerM !== null
+    ? (() => {
+      let line = 0;
+      let lineStart = 0;
+      for (let i = 0; i < headerM.index; i++) {
+        if (text.charCodeAt(i) === 10) {
+          line++;
+          lineStart = i + 1;
+        }
+      }
+      const lineEndRaw = text.indexOf('\n', lineStart);
+      const lineEnd = lineEndRaw >= 0 ? lineEndRaw : text.length;
+      return {
+        line,
+        oldText: text.slice(lineStart, lineEnd),
+        newText: newDisplayLabel ? `${headerM[1]} (${newDisplayLabel})` : headerM[1],
+      };
+    })()
+    : undefined;
 
-  // Insertion point: after the last existing annotation, or at segment start+1 when
-  // no annotations exist in the cluster, or full-scan fallback (no segment).
+  if (toRemove.length === 0 && toAdd.length === 0 && !headerNeedsUpdate) return null;
+
+  // Insertion point: after the last existing annotation, or at the first cluster
+  // non-Declaration line when no annotations exist yet, or full-scan fallback (no segment).
   let insertAt: number;
   if (fileItems.length > 0) {
     const last = fileItems[fileItems.length - 1];
     insertAt = last.lineIdx + last.lineCount;
   } else if (segment) {
-    insertAt = segment.startLine + 1;
+    // segment.startLine may point to a Declaration(Class(...)) line in a separate
+    // declarations section, which precedes the entity cluster. Walk lineIndices to
+    // find the first non-Declaration cluster line and insert before it (right after
+    // the cluster header comment).
+    let clusterFirstLine = -1;
+    if (segment.lineIndices && segment.lineCharStarts) {
+      for (let k = 0; k < segment.lineIndices.length; k++) {
+        let ws = segment.lineCharStarts[k];
+        while (ws < text.length && (text.charCodeAt(ws) === 32 || text.charCodeAt(ws) === 9)) ws++;
+        if (!text.startsWith('Declaration(', ws)) {
+          clusterFirstLine = segment.lineIndices[k];
+          break;
+        }
+      }
+    }
+    if (clusterFirstLine >= 0) {
+      insertAt = clusterFirstLine;
+    } else {
+      // All segment lines are Declarations (new entity with no cluster axioms yet).
+      // Fall back to scanning the full text for the cluster header comment so we
+      // insert after the header rather than right after the Declaration line.
+      const typeLabelFb = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
+      const headerMatchFb = `# ${typeLabelFb}: <${entity.iri}>`;
+      let headerLine = -1;
+      let lineNo = 0;
+      let p = 0;
+      while (p <= text.length) {
+        const nl = text.indexOf('\n', p);
+        const lineEnd = nl >= 0 ? nl : text.length;
+        // Trim leading whitespace for comparison
+        let ws2 = p;
+        while (ws2 < lineEnd && (text.charCodeAt(ws2) === 32 || text.charCodeAt(ws2) === 9)) ws2++;
+        if (text.startsWith(headerMatchFb, ws2)) { headerLine = lineNo; break; }
+        if (nl < 0) break;
+        p = nl + 1;
+        lineNo++;
+      }
+      insertAt = headerLine >= 0 ? headerLine + 1 : segment.endLine + 1;
+    }
   } else {
     const entityToken = `<${entity.iri}>`;
     const typeLabel = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
     const headerMatch = `# ${typeLabel}: ${entityToken}`;
     let clusterHeaderIdx = -1;
     for (let j = 0; j < lines.length; j++) {
-      if (lines[j].startsWith(headerMatch)) { clusterHeaderIdx = j; break; }
+      if (lines[j].trimStart().startsWith(headerMatch)) { clusterHeaderIdx = j; break; }
     }
     if (clusterHeaderIdx >= 0) {
       insertAt = clusterHeaderIdx + 1;
@@ -375,6 +451,13 @@ function syncFunctional(
   const edit = new vscode.WorkspaceEdit();
   for (const item of [...toRemove].sort((a, b) => b.lineIdx - a.lineIdx)) {
     edit.delete(doc.uri, new vscode.Range(item.lineIdx, 0, item.lineIdx + item.lineCount, 0));
+  }
+  if (headerEdit) {
+    edit.replace(
+      doc.uri,
+      new vscode.Range(headerEdit.line, 0, headerEdit.line, headerEdit.oldText.length),
+      headerEdit.newText,
+    );
   }
   for (const [pos, insertLines] of annotInsertsMap) {
     edit.insert(doc.uri, new vscode.Position(pos, 0), insertLines.join('\n') + '\n');
