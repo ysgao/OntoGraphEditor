@@ -91,7 +91,7 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 ## Active Feature
 
 <!-- SPECKIT START -->
-Feature `008-persist-display-config` is in progress on branch `008-persist-display-config`. Specs and plan are in `specs/008-persist-display-config/`. Goal: persist authoring-ui-vscode display configuration (tree-view width, editor width, display scheme, mode) across VS Code restarts using `ExtensionContext.globalState`. Angular webview sends `DISPLAY_CONFIG_CHANGE` via IPC; extension host writes to `globalState` and replays saved config via `DISPLAY_CONFIG_INIT` on panel activation. See `specs/008-persist-display-config/plan.md`.
+Feature `010-pull-upstream-merge` is in progress on branch `010-pull-upstream-merge`. Specs and plan are in `specs/010-pull-upstream-merge/`. Goal: fast-forward the `apps/OntoGraph-lite` fork (`ysgao/OntoGraph-lite-vscode`) to incorporate 35 upstream commits from `ysgao/OntoGraph-lite` (features 015–023: entity creation, navigation history, unsaved-changes guard, Manchester sort, OntoGraph CLI). Fork is a strict ancestor of upstream — merge is conflict-free. After merge, bump the submodule pointer in the parent repo and verify `npm run build-all` passes. See `specs/010-pull-upstream-merge/plan.md`.
 <!-- SPECKIT END -->
 
 ## Syncing Submodules

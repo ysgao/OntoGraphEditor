@@ -1,18 +1,19 @@
 # Pulling Upstream Changes into OntoGraph-lite
 
-## Architecture: two layers that must both be synced
+## Architecture: three layers that must all be synced
 
-The extension has a parallel-copy architecture. A git merge of the submodule alone is **not enough** — both layers must be updated:
+The extension has a parallel-copy architecture. A git merge of the submodule alone is **not enough** — all three layers must be updated:
 
 | Layer | Location | Built by |
 |-------|----------|----------|
 | Submodule (fork of upstream) | `apps/OntoGraph-lite/` | not built into extension host |
 | Extension host copy | `extension/src/graph/` | esbuild → `dist/extension.js` |
 | Webviews | `apps/OntoGraph-lite/webview-src/` | esbuild → `dist/*-webview.js` |
+| Java reasoner server | `apps/OntoGraph-lite/java-server/` | Maven → JAR copied verbatim into `dist/java-server/` |
 
-`extension/src/graph/` is a maintained copy of `apps/OntoGraph-lite/src/`. esbuild bundles the extension host from `extension/src/`, **not** from the submodule. Webviews are built directly from the submodule's `webview-src/`.
+`extension/src/graph/` is a maintained copy of `apps/OntoGraph-lite/src/`. esbuild bundles the extension host from `extension/src/`, **not** from the submodule. Webviews are built directly from the submodule's `webview-src/`. The Java server is different again: nothing is copied into `extension/` at the source level — esbuild's post-build step just copies whatever **built JAR** already sits in `apps/OntoGraph-lite/java-server/target/`, so that JAR must be rebuilt from the merged source before packaging (see step 12).
 
-**Consequence:** new upstream source files or changed upstream source files must be copied into `extension/src/graph/` after the submodule merge, or the new features will not appear in the built extension.
+**Consequence:** new or changed upstream TypeScript source must be copied into `extension/src/graph/` after the submodule merge, or the new features will not appear in the built extension — and if the merge touched `java-server/src`, the JAR must be rebuilt too, or the TS and Java sides silently disagree on the JSON-RPC protocol at runtime.
 
 ---
 
@@ -86,10 +87,24 @@ The submodule merge brings new and updated TypeScript source files. These must b
 # New files upstream added to src/ since the last sync point
 git -C apps/OntoGraph-lite diff --name-status <prev-sha>..HEAD -- src/
 
-# Or diff against what extension/src/graph/ currently has
-diff -rq --include="*.ts" apps/OntoGraph-lite/src/ extension/src/graph/ \
-  | grep "Only in apps"   # files in submodule but not in extension copy
+# Or diff against what extension/src/graph/ currently has.
+# macOS `diff` has no --include flag, so build file lists with find + comm instead:
+find apps/OntoGraph-lite/src -name "*.ts" ! -name "*.test.ts" | sed 's|apps/OntoGraph-lite/src/||' | sort > /tmp/sub_files.txt
+find extension/src/graph -name "*.ts" ! -name "*.test.ts" | sed 's|extension/src/graph/||' | sort > /tmp/ext_files.txt
+comm -23 /tmp/sub_files.txt /tmp/ext_files.txt   # NEW: in submodule, not yet in extension copy
+comm -13 /tmp/sub_files.txt /tmp/ext_files.txt   # extension-only files (activateGraph.ts, its own *.test.ts) — expected, not a gap
 ```
+
+Then, for files common to both lists, find which ones actually differ:
+
+```bash
+comm -12 /tmp/sub_files.txt /tmp/ext_files.txt > /tmp/common_files.txt
+while read -r f; do
+  diff -q "apps/OntoGraph-lite/src/$f" "extension/src/graph/$f" >/dev/null 2>&1 || echo "CHANGED: $f"
+done < /tmp/common_files.txt
+```
+
+**Not every new upstream file belongs in `extension/src/graph/`.** `api.ts` and `bridge/BridgeServer.ts` back the standalone OntoGraph-lite extension's own external API (used by the separate `ontograph` CLI packages to talk to a running VS Code instance over a socket). The embedded extension has no equivalent consumer and already has its own IPC bridge (`ontographEditor.ipcRoute`) — skip these two files and anything that imports them, unless another new file starts depending on them (check with `grep -rl "from '.*\bapi'\|BridgeServer" apps/OntoGraph-lite/src/`).
 
 ### 7. Copy new files verbatim
 
@@ -132,6 +147,20 @@ Files requiring surgical merge (extension-specific code must be preserved):
 | `views/EntityEditorPanel.ts` | `bypassHistory` param in `sendLoadEntity`; `preserveFocus` param in `guardedShowEntityInfo` |
 | `commands/activateGraph.ts` | `ontographEditor.ipcRoute` call in `onEntitySelected`; `preserveFocus` arg in `focusEntity`; `updateGraphPanel` call; `fromIpc` handling throughout |
 | `commands/openVisualization.ts` | **Never replace** — has IPC routing (`GRAPH_NODE_SELECT`), `updateGraphPanel` export, and extension-specific graph panel wiring |
+| `commands/loadOntologyFile.ts` | Extension omits the upstream workspace-folder-switching feature (`onUriResolved` hook, `openWorkspaceFolderOnUriResolved`/`openWorkspaceFolderAfterLoad`, `pendingLoadUri` restart flow) — restarting the extension host to switch workspace folders would be disruptive to the embedded dual-panel host. Keep the 2-arg signature; only port in additions that don't need that hook (e.g. conflict-marker detection, prefill URI validation) |
+| `reasoner/ReasonerBridge.ts` | `jarPath` points at `dist/java-server/onto-reasoner-server.jar` (packaged location), not the submodule's dev-mode `java-server/target/onto-reasoner-server.jar` |
+
+**Telling a genuine upstream change apart from a pre-existing intentional divergence.** A file can differ from the submodule for two very different reasons: (a) upstream changed it in this sync, or (b) the extension copy has always diverged (deliberately, or from a gap an earlier sync missed). Conflating the two leads to either clobbering a real customization or leaving a real bug in place. Disambiguate with a three-way diff against the submodule commit the *previous* sync started from (recorded in the bump commit message, or `git -C apps/OntoGraph-lite log --oneline` around the last `chore: bump OntoGraph-lite submodule` commit — call it `<prev-sha>`):
+
+```bash
+# What did upstream actually change in THIS sync?
+git -C apps/OntoGraph-lite diff <prev-sha> HEAD -- src/commands/loadOntologyFile.ts
+
+# Did the extension copy already differ from the submodule BEFORE this sync?
+diff <(git -C apps/OntoGraph-lite show <prev-sha>:src/commands/loadOntologyFile.ts) extension/src/graph/commands/loadOntologyFile.ts
+```
+
+If the second diff is empty, the extension copy had no customization — safe to overwrite verbatim with the submodule's current version. If it's non-empty, that divergence predates this sync; preserve it and apply only the first diff's delta on top. This is how `loadOntologyFile.ts`, `ReasonerBridge.ts`, and `FunctionalSerializer.ts` were correctly identified as needing surgical merges even though they weren't in the original known-customization list above — update that list whenever this process turns up a new one.
 
 ### 9. Update activateGraph.ts with new upstream commands
 
@@ -160,6 +189,22 @@ grep -n "registerCommand" apps/OntoGraph-lite/src/extension.ts
 grep -n '"command"' extension/package.json
 ```
 
+Also diff `contributes.configuration` and `dependencies`/`devDependencies` — a new feature (e.g. UML diagram generation) commonly ships new settings and, less often, new bundled libraries:
+
+```bash
+python3 -c "
+import json
+sub = json.load(open('apps/OntoGraph-lite/package.json'))
+ext = json.load(open('extension/package.json'))
+print('config keys missing from extension:',
+      set(sub['contributes']['configuration']['properties']) - set(ext['contributes']['configuration']['properties']))
+print('deps missing from extension devDependencies:',
+      set(sub.get('dependencies', {})) - set(ext.get('devDependencies', {})) - set(ext.get('dependencies', {})))
+"
+```
+
+Note the extension declares these as `devDependencies` (esbuild bundles them into the webview/extension host; nothing needs installing at runtime beyond `vscode`), so compare against `devDependencies`, not `dependencies`.
+
 ### 11. Verify webview script tags
 
 Webview bundles are built as `format: 'esm'` with code splitting. Every `buildHtml` function that serves a webview must use `type="module"` on its script tag:
@@ -173,12 +218,44 @@ Files to check:
 - `extension/src/graph/commands/openVisualization.ts`
 - `extension/src/graph/commands/openSparqlEditor.ts`
 - `extension/src/graph/views/DLQueryPanel.ts`
+- `extension/src/graph/commands/generateUmlDiagram.ts`
+
+If a new feature introduces its own webview panel entirely (as `generateUmlDiagram.ts` did for the UML diagram view), it needs a matching entry point registered in **`extension/esbuild.mjs`**'s `webviewBuild.entryPoints`, pointing at the submodule's `webview-src/<name>/<App>.ts` — otherwise the panel's `buildHtml()` references a bundle (`dist/<name>-webview.js`) that esbuild never produces, and the panel loads with no script at all. Diff the submodule's own `esbuild.mjs` `entryPoints` list against `extension/esbuild.mjs` to catch this:
+
+```bash
+grep -A10 "entryPoints" apps/OntoGraph-lite/esbuild.mjs
+grep -A10 "entryPoints" extension/esbuild.mjs
+```
+
+### 12. Rebuild the Java reasoner server, if changed
+
+`java-server/` (Maven/Java, not TypeScript) is a **third** layer with the same parallel-copy problem as Part 2 — but instead of copying source, `extension/esbuild.mjs`'s post-build step copies the **built JAR** (`apps/OntoGraph-lite/java-server/target/onto-reasoner-server.jar`) into `extension/dist/java-server/`. That JAR is a stale build artifact until it's rebuilt from the merged source — merging the submodule does *not* rebuild it, and nothing else in this runbook does either.
+
+```bash
+# Did this sync touch the Java server source?
+git -C apps/OntoGraph-lite diff <prev-sha> HEAD -- java-server/src
+```
+
+If it did, rebuild before packaging:
+
+```bash
+cd apps/OntoGraph-lite/java-server
+mvn clean package
+```
+
+Skipping this is a silent failure, not a build error: `npm run compile`/`build-all`/`package:vsix` all succeed either way, because esbuild just copies whatever JAR is sitting in `target/`. The mismatch only surfaces at runtime — e.g. the TS side reading a new response field (`equivalentClasses`) that the stale JAR's JSON-RPC output doesn't include yet throws `entries is not iterable` deep in `groupEquivalentClasses()`. If classification (or any other reasoner-bridge feature) breaks after a sync with no compile errors, suspect a stale JAR first — check the JAR's mtime against `java-server/src`:
+
+```bash
+find apps/OntoGraph-lite/java-server/src -newer apps/OntoGraph-lite/java-server/target/onto-reasoner-server.jar
+```
+
+Any output means the JAR predates the current source and must be rebuilt. After rebuilding, re-run `npm run build-all` so the fresh JAR gets copied into `extension/dist/`.
 
 ---
 
 ## Part 3 — Build and verify
 
-### 12. Type-check
+### 13. Type-check
 
 ```bash
 cd extension && npm run compile
@@ -186,7 +263,7 @@ cd extension && npm run compile
 
 Only pre-existing errors in test files (missing `vitest`/`n3` type declarations) are acceptable. Any new errors must be fixed before packaging.
 
-### 13. Build and package
+### 14. Build and package
 
 ```bash
 cd ..  # repo root
@@ -198,6 +275,9 @@ Install the resulting VSIX and verify:
 - Selecting an entity in the AuthoringWorkbench highlights it in OntoGraph-lite without stealing focus from the authoring panel
 - Clicking an entity in OntoGraph-lite opens/updates the Entity Editor
 - Back/Forward navigation buttons work after navigating between entities
+- Classification and any other reasoner-bridge feature (`checkConsistency`, DL Query) still succeed — this is the one that silently regresses if step 12 was skipped
+
+If testing via F5 (Extension Development Host) rather than an installed VSIX: fully stop the debug session (Shift+F5) and relaunch rather than using the in-place Restart button. Restart can serve a stale `dist/`, including a Java server child process still holding the old JAR.
 
 ---
 
