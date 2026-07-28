@@ -17,6 +17,9 @@ export interface LoadEntityMessage {
   equivalentClassIris?: string[];
   equivalentClassExpressions?: string[];
   gciExpressions?: string[];
+  /** Reasoner-derived, unasserted class equivalences (read-only; never sent back on save). */
+  inferredEquivalentClassIris?: string[];
+  inferredEquivalentClassExpressions?: string[];
   disjointClassIris?: string[];
 
   // Object/Data/Annotation property
@@ -164,6 +167,21 @@ export interface IriRenameResultMessage {
   error?: string;
 }
 
+/**
+ * Sent by the extension in response to a `save` message whose `labels` field
+ * would duplicate another existing entity's label. On success === false, the
+ * label portion of the save was rejected (entity keeps its previous label)
+ * but any other valid fields in the same save were still applied.
+ */
+export interface LabelRenameResultMessage {
+  type: 'labelRenameResult';
+  success: boolean;
+  /** The accepted new label; only present when success === true. */
+  newLabel?: string;
+  /** Human-readable error naming the conflicting entity; only present when success === false. */
+  error?: string;
+}
+
 export type EntityEditorExtToWebview =
   | LoadEntityMessage
   | CompletionResultMessage
@@ -172,6 +190,7 @@ export type EntityEditorExtToWebview =
   | UndoRedoStateMessage
   | AutoSaveMessage
   | IriRenameResultMessage
+  | LabelRenameResultMessage
   | QueryDirtyMessage
   | RequestSaveMessage;
 export type EntityEditorWebviewToExt =

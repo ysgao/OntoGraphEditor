@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { OntologyModel } from '../model/OntologyModel';
 import { ParserRegistry } from '../parser/ParserRegistry';
+import { detectConflictMarkers, showConflictError } from '../utils/conflictMarkers';
 
 function sourceFormatToLangId(format: string): string {
   switch (format) {
@@ -29,6 +30,11 @@ export async function reloadOntology(
   try {
     const uri = vscode.Uri.parse(activeModel.sourceUri);
     const text = await readFileAsText(uri);
+    const conflicts = detectConflictMarkers(text);
+    if (conflicts) {
+      showConflictError(uri, conflicts);
+      return;
+    }
     const stat = await vscode.workspace.fs.stat(uri);
     const langId = sourceFormatToLangId(activeModel.sourceFormat);
     const model = await ParserRegistry.parseAsync(text, langId, activeModel.sourceUri);

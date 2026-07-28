@@ -50,7 +50,7 @@ const browserConfig = {
   target: 'es2020',
 };
 
-// 4-7. Webviews (single build with splitting — shares codemirror and other common deps)
+// 4-8. Webviews (single build with splitting — shares codemirror and other common deps)
 const webviewBuild = esbuild.build({
   ...browserConfig,
   format: 'esm',
@@ -61,6 +61,7 @@ const webviewBuild = esbuild.build({
     'entity-editor-webview': '../apps/OntoGraph-lite/webview-src/entity-editor/EntityEditorApp.ts',
     'sparql-editor-webview': '../apps/OntoGraph-lite/webview-src/sparql-editor/SparqlEditorApp.ts',
     'dl-query-webview':      '../apps/OntoGraph-lite/webview-src/dl-query/DLQueryApp.ts',
+    'uml-diagram-webview':   '../apps/OntoGraph-lite/webview-src/uml/UmlDiagramApp.ts',
   },
   chunkNames: 'chunks/[hash]',
 });

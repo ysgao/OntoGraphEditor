@@ -117,6 +117,7 @@ export class ParserRegistry {
             entitySegments: w.entitySegPack ? unpackSegments(w.entitySegPack) : undefined,
             gciSegments: w.gciSegPack ? unpackSegments(w.gciSegPack) : undefined,
             inferredSubClasses: new Map(),
+            inferredEquivalentClasses: new Map(),
           };
           if (msg.timing) {
             const overhead = (tRoundTrip - tAfterSpawn) - msg.timing.parse - msg.timing.index;

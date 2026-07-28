@@ -101,7 +101,7 @@ function sendGraph(
   void p.webview.postMessage(msg);
 }
 
-function buildGraphData(
+export function buildGraphData(
   model: OntologyModel,
   focusIri: string | undefined,
   depth: number,
@@ -143,6 +143,31 @@ function buildGraphData(
     if (!edgeMap.has(e.id)) { edgeMap.set(e.id, e); }
   };
 
+  // Direct supertypes of focus entity — always depth-1, not part of BFS.
+  // Uses inferred hierarchy (post-classification) when available so that
+  // EquivalentClasses-defined classes show their reasoner-computed parents.
+  // Falls back to superClassIris (asserted) when unclassified.
+  // Uses the same edge id format as subClassOf so the post-BFS edge sweep
+  // (which iterates nodeIris) cannot insert a duplicate subClassOf edge for
+  // the same focus→parent pair (addEdge deduplicates by id).
+  if (focusIri && model.classes.has(focusIri)) {
+    let directParentIris: string[];
+    if (model.isClassified && model.inferredSubClasses.size > 0) {
+      directParentIris = [];
+      for (const [parentIri, children] of model.inferredSubClasses) {
+        if (children.has(focusIri) && model.classes.has(parentIri)) {
+          directParentIris.push(parentIri);
+        }
+      }
+    } else {
+      directParentIris = model.classes.get(focusIri)!.superClassIris;
+    }
+    for (const sup of directParentIris) {
+      if (!nodeIris.has(sup) && nodeIris.size < MAX_NODES) { nodeIris.add(sup); }
+      addEdge({ id: `${focusIri}|sub|${sup}`, source: focusIri, target: sup, type: 'directSupertype' });
+    }
+  }
+
   for (let hop = 0; hop < depth && nodeIris.size < MAX_NODES; hop++) {
     const next = new Set<string>();
 
@@ -150,13 +175,6 @@ function buildGraphData(
       // ── Class edges ──────────────────────────────────────────────────────
       const cls = model.classes.get(iri);
       if (cls) {
-        // SubClassOf (going up to superclass)
-        for (const sup of cls.superClassIris) {
-          if (sup === OWL_THING) { continue; }
-          addEdge({ id: `${iri}|sub|${sup}`, source: iri, target: sup, type: 'subClassOf' });
-          if (!nodeIris.has(sup) && nodeIris.size < MAX_NODES) { nodeIris.add(sup); next.add(sup); }
-        }
-
         // Subclasses (going down)
         for (const sub of assertedChildren.get(iri) ?? []) {
           addEdge({ id: `${sub}|sub|${iri}`, source: sub, target: iri, type: 'subClassOf' });

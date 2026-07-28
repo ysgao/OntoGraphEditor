@@ -1,142 +1,55 @@
-import * as cp from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as readline from 'readline';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { ReasonerProcess } from './ReasonerProcess.js';
 import type { DLQueryResult } from '../model/OntologyModel.js';
+import type { EquivalentClassEntry, ClassificationResult, ConsistencyResult } from './ReasonerProcess.js';
 
-export interface ClassificationResult {
-  consistent: boolean;
-  incoherentClasses: string[];
-  /** Directed edges of the inferred hierarchy: [parentIri, childIri] */
-  hierarchy: [string, string][];
-}
-
-export interface ConsistencyResult {
-  consistent: boolean;
-  explanation?: string[];
-}
-
-export type { DLQueryResult };
-
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (reason: Error) => void;
-  timer: NodeJS.Timeout;
-};
+export { groupEquivalentClasses } from './ReasonerProcess.js';
+export type { EquivalentClassEntry, ClassificationResult, ConsistencyResult, DLQueryResult };
 
 export class ReasonerBridge implements vscode.Disposable {
-  private proc: cp.ChildProcess | undefined;
-  private pending = new Map<number, PendingRequest>();
-  private nextId = 1;
+  private inner: ReasonerProcess;
   private statusBarItem: vscode.StatusBarItem;
   private outputChannel: vscode.OutputChannel;
-  private ready = false;
 
   constructor(private extensionPath: string) {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
     this.statusBarItem.text = '$(beaker) Reasoner: idle';
     this.statusBarItem.show();
     this.outputChannel = vscode.window.createOutputChannel('OntoGraph Reasoner');
-  }
 
-  async start(): Promise<void> {
-    if (this.proc) { return; }
+    // javaPath/jvmArgs are only ever consulted at the moment the process is actually spawned
+    // (ReasonerProcess.start(), gated on `!this.proc`) — matching this class's own pre-extraction
+    // behavior, where those two settings were likewise only read on the first start(). timeoutMs
+    // is now fixed at construction rather than re-read on every request; this is a deliberate,
+    // documented, minor behavior change (see the 028-standalone-cli-reasoner completion report) —
+    // changing `ontograph.reasoner.timeoutSeconds` mid-session now requires reloading the window,
+    // same as `javaPath`/`jvmArgs` already did before this refactor.
     const config = vscode.workspace.getConfiguration('ontograph.reasoner');
     const javaPath: string = config.get('javaPath') ?? 'java';
     const jvmArgs: string[] = config.get('jvmArgs') ?? ['-Xmx4g'];
+    const timeoutMs = ((config.get('timeoutSeconds') as number) ?? 600) * 1000;
     const jarPath = path.join(this.extensionPath, 'dist', 'java-server', 'onto-reasoner-server.jar');
+    this.inner = new ReasonerProcess({ javaPath, jarPath, jvmArgs, timeoutMs });
+  }
 
+  async start(): Promise<void> {
     this.statusBarItem.text = '$(loading~spin) Reasoner: starting…';
-
-    this.proc = cp.spawn(javaPath, [...jvmArgs, '-jar', jarPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    this.proc.on('error', (err) => {
-      vscode.window.showErrorMessage(`OntoGraph reasoner failed to start: ${err.message}`);
-      this.proc = undefined;
-      this.ready = false;
-      this.statusBarItem.text = '$(error) Reasoner: offline';
-    });
-
-    this.proc.on('exit', () => {
-      this.proc = undefined;
-      this.ready = false;
-      this.statusBarItem.text = '$(warning) Reasoner: stopped';
-    });
-
-    const rl = readline.createInterface({ input: this.proc.stdout! });
-    rl.on('line', (line) => {
-      if (!line.trim()) { return; }
-      try {
-        const msg = JSON.parse(line) as { id: number; result?: unknown; error?: { message: string } };
-        const req = this.pending.get(msg.id);
-        if (!req) { return; }
-        clearTimeout(req.timer);
-        this.pending.delete(msg.id);
-        if (msg.error) {
-          req.reject(new Error(msg.error.message));
-        } else {
-          req.resolve(msg.result);
-        }
-      } catch {
-        // ignore malformed lines (e.g. JVM startup messages)
-      }
-    });
-
-    const stderrRl = readline.createInterface({ input: this.proc.stderr! });
-    stderrRl.on('line', (line) => this.outputChannel.appendLine(line));
-
-    // Pre-warm the JVM
     try {
-      await this.request('ping', {});
-      this.ready = true;
-      this.statusBarItem.text = '$(check) Reasoner: ready';
-    } catch {
-      this.statusBarItem.text = '$(error) Reasoner: failed';
+      await this.inner.start();
+      this.statusBarItem.text = this.inner.isReady()
+        ? '$(check) Reasoner: ready'
+        : '$(error) Reasoner: failed';
+    } catch (err) {
+      void vscode.window.showErrorMessage(`OntoGraph reasoner failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      this.statusBarItem.text = '$(error) Reasoner: offline';
     }
   }
 
-  private request(method: string, params: unknown): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      if (!this.proc?.stdin) {
-        reject(new Error('Reasoner process is not running'));
-        return;
-      }
-      const config = vscode.workspace.getConfiguration('ontograph.reasoner');
-      const timeoutMs = ((config.get('timeoutSeconds') as number) ?? 600) * 1000;
-      const id = this.nextId++;
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Reasoner request '${method}' timed out after ${timeoutMs / 1000}s`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      const payload = JSON.stringify({ id, method, params }) + '\n';
-      this.proc.stdin.write(payload);
-    });
-  }
-
   async classify(format: string, content: string, engine = 'auto'): Promise<ClassificationResult> {
-    if (!this.proc) { await this.start(); }
     this.statusBarItem.text = '$(loading~spin) Classifying…';
-    const { params, tempFile } = await this.buildParams({ format, content, engine });
-    return this.classifyWithParams(params, tempFile);
-  }
-
-  async classifyFile(format: string, filePath: string, engine = 'auto'): Promise<ClassificationResult> {
-    if (!this.proc) { await this.start(); }
-    this.statusBarItem.text = '$(loading~spin) Classifying…';
-    return this.classifyWithParams({ format, filePath, engine }, undefined);
-  }
-
-  private async classifyWithParams(
-    params: Record<string, unknown>,
-    tempFile: string | undefined,
-  ): Promise<ClassificationResult> {
     try {
-      const result = await this.request('classify', params) as ClassificationResult;
+      const result = await this.inner.classify(format, content, engine);
       this.statusBarItem.text = result.consistent
         ? '$(pass) Consistent'
         : `$(error) Inconsistent (${result.incoherentClasses.length} unsatisfiable)`;
@@ -144,51 +57,37 @@ export class ReasonerBridge implements vscode.Disposable {
     } catch (err) {
       this.statusBarItem.text = '$(error) Reasoning failed';
       throw err;
-    } finally {
-      if (tempFile) { await fs.promises.unlink(tempFile).catch(() => {}); }
+    }
+  }
+
+  async classifyFile(format: string, filePath: string, engine = 'auto'): Promise<ClassificationResult> {
+    this.statusBarItem.text = '$(loading~spin) Classifying…';
+    try {
+      const result = await this.inner.classifyFile(format, filePath, engine);
+      this.statusBarItem.text = result.consistent
+        ? '$(pass) Consistent'
+        : `$(error) Inconsistent (${result.incoherentClasses.length} unsatisfiable)`;
+      return result;
+    } catch (err) {
+      this.statusBarItem.text = '$(error) Reasoning failed';
+      throw err;
     }
   }
 
   async checkConsistency(format: string, content: string): Promise<ConsistencyResult> {
-    if (!this.proc) { await this.start(); }
-    const { params, tempFile } = await this.buildParams({ format, content });
-    try {
-      return await this.request('checkConsistency', params) as ConsistencyResult;
-    } finally {
-      if (tempFile) { await fs.promises.unlink(tempFile).catch(() => {}); }
-    }
-  }
-
-  /**
-   * For large content, writes it to a temp file and substitutes a filePath param
-   * to avoid JSON-encoding tens of MB over the stdin pipe.
-   */
-  private async buildParams(
-    base: Record<string, string | undefined>,
-  ): Promise<{ params: Record<string, string | undefined>; tempFile: string | undefined }> {
-    const content = base.content;
-    if (content && content.length > 512_000) {
-      const id = this.nextId;
-      const tempFile = path.join(os.tmpdir(), `ontograph-${id}.owl`);
-      await fs.promises.writeFile(tempFile, content, 'utf8');
-      const { content: _omit, ...rest } = base;
-      return { params: { ...rest, filePath: tempFile }, tempFile };
-    }
-    return { params: base, tempFile: undefined };
+    return this.inner.checkConsistency(format, content);
   }
 
   async convertFormat(content: string, fromFormat: string, toFormat: string): Promise<string> {
-    if (!this.proc) { await this.start(); }
-    return this.request('convertFormat', { content, fromFormat, toFormat }) as Promise<string>;
+    return this.inner.convertFormat(content, fromFormat, toFormat);
   }
 
   isReady(): boolean {
-    return this.ready;
+    return this.inner.isReady();
   }
 
   async validateExpression(expression: string): Promise<{ valid: boolean; error?: string }> {
-    if (!this.proc) { await this.start(); }
-    return this.request('validateExpression', { expression }) as Promise<{ valid: boolean; error?: string }>;
+    return this.inner.validateExpression(expression);
   }
 
   async dlQuery(
@@ -199,39 +98,12 @@ export class ReasonerBridge implements vscode.Disposable {
     queryTypes: string[],
     engine = 'auto',
   ): Promise<DLQueryResult> {
-    if (!this.proc) { await this.start(); }
-
-    let params: Record<string, unknown>;
-    let tempFile: string | undefined;
-    const rawContent = content ?? '';
-
-    if (!filePath && rawContent.length > 512_000) {
-      const id = this.nextId;
-      tempFile = path.join(os.tmpdir(), `ontograph-${id}.owl`);
-      await fs.promises.writeFile(tempFile, rawContent, 'utf8');
-      params = { format, filePath: tempFile, classExpression, queryTypes, engine };
-    } else if (filePath) {
-      params = { format, filePath, classExpression, queryTypes, engine };
-    } else {
-      params = { format, content: rawContent, classExpression, queryTypes, engine };
-    }
-
-    try {
-      return await this.request('dlQuery', params) as DLQueryResult;
-    } finally {
-      if (tempFile) { await fs.promises.unlink(tempFile).catch(() => {}); }
-    }
+    return this.inner.dlQuery(format, content, filePath, classExpression, queryTypes, engine);
   }
 
   dispose(): void {
     this.statusBarItem.dispose();
     this.outputChannel.dispose();
-    for (const req of this.pending.values()) {
-      clearTimeout(req.timer);
-      req.reject(new Error('ReasonerBridge disposed'));
-    }
-    this.pending.clear();
-    this.proc?.kill();
-    this.proc = undefined;
+    this.inner.dispose();
   }
 }

@@ -5,6 +5,7 @@ import { temporaryClassIris } from '../views/DLQueryState.js';
 import { beginSyncWrite, endSyncWrite } from './reloadGuard';
 import { RawTextDocument, applyWorkspaceEditsToText, countLineDelta, type OffsetEdit } from './RawTextDocument';
 import type { EditSummary } from '../model/SegmentIndex';
+import { detectConflictMarkers, showConflictError } from '../utils/conflictMarkers';
 import type {
   OWLEntity,
   OWLClass,
@@ -1313,6 +1314,8 @@ export async function syncAxiomsToDocument(
     }
     text = new TextDecoder().decode(bytes);
   }
+  const conflicts = detectConflictMarkers(text);
+  if (conflicts) { showConflictError(uri, conflicts); return null; }
   const doc = new RawTextDocument(uri, text) as unknown as vscode.TextDocument;
 
   let result: SyncResult | null = null;

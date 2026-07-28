@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { OntologyModel } from '../model/OntologyModel';
 import { ParserRegistry } from '../parser/ParserRegistry';
+import { detectConflictMarkers, showConflictError } from '../utils/conflictMarkers';
 
 const ONTOLOGY_EXTENSIONS = ['owl', 'ofn', 'omn', 'ttl', 'owx', 'n3'];
 
@@ -17,8 +18,11 @@ export async function loadOntologyFile(
 
   isLoading = true;
   try {
+    const isValidOntologyUri = (u: vscode.Uri) =>
+      !!u.fsPath && ONTOLOGY_EXTENSIONS.some(ext => u.fsPath.toLowerCase().endsWith('.' + ext));
+
     let uri: vscode.Uri | undefined;
-    if (prefillUri) {
+    if (prefillUri && isValidOntologyUri(prefillUri)) {
       uri = prefillUri;
     } else {
       const result = await vscode.window.showOpenDialog({
@@ -51,6 +55,12 @@ export async function loadOntologyFile(
         } catch (readErr) {
           const msg = readErr instanceof Error ? readErr.message : String(readErr);
           void vscode.window.showErrorMessage(`OntoGraph: failed to read '${filename}' — ${msg}.`);
+          return;
+        }
+
+        const conflicts = detectConflictMarkers(text);
+        if (conflicts) {
+          showConflictError(uri!, conflicts);
           return;
         }
 

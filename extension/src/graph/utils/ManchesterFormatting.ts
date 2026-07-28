@@ -200,6 +200,72 @@ export function splitTopLevelConjuncts(expr: string): string[] {
   return conjuncts;
 }
 
+export type Conjunct =
+  | { kind: 'bare'; targetIri: string }
+  | { kind: 'restriction'; propertyIri: string; targetIri: string };
+
+// Restriction operators a conjunct may use. Only `some` is modelled as a
+// {propertyIri, targetIri} restriction below — cardinality/universal
+// restrictions (`only`/`value`/`min`/`max`/`exactly`) have 0 occurrences in
+// this project's real anatomy fixture, so a conjunct using one of them is
+// simply excluded from the result (neither 'bare' nor 'restriction') rather
+// than being misclassified as a bare named class.
+const RESTRICTION_OPS = [' some ', ' only ', ' value ', ' min ', ' max ', ' exactly '];
+
+function hasTopLevelOp(conjunct: string, op: string): boolean {
+  let parenDepth = 0;
+  for (let i = 0; i <= conjunct.length - op.length; i++) {
+    const ch = conjunct[i];
+    if (ch === '(') { parenDepth++; }
+    else if (ch === ')') { if (parenDepth > 0) { parenDepth--; } }
+    else if (parenDepth === 0 && conjunct.slice(i, i + op.length) === op) { return true; }
+  }
+  return false;
+}
+
+function splitTopLevelSome(conjunct: string): { propertyIri: string; targetIri: string } | undefined {
+  const op = ' some ';
+  let parenDepth = 0;
+  for (let i = 0; i <= conjunct.length - op.length; i++) {
+    const ch = conjunct[i];
+    if (ch === '(') { parenDepth++; }
+    else if (ch === ')') { if (parenDepth > 0) { parenDepth--; } }
+    else if (parenDepth === 0 && conjunct.slice(i, i + op.length) === op) {
+      const propertyIri = conjunct.slice(0, i).trim();
+      const targetIri = conjunct.slice(i + op.length).trim();
+      if (propertyIri && targetIri) { return { propertyIri, targetIri }; }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Splits a Manchester class expression into its top-level conjuncts (reusing
+ * `splitTopLevelConjuncts`'s paren-depth-aware `and`-splitting) and classifies
+ * each one as a bare named-class reference or a `some` restriction
+ * ({propertyIri, targetIri}). Used to extract composition/generalization
+ * candidates for UML diagram generation (`src/uml/partOfGraph.ts`) — this
+ * function makes no composition/generalization judgment itself, it only
+ * exposes the conjunct shape for the caller to classify.
+ */
+export function parseConjuncts(expr: string): Conjunct[] {
+  if (!expr) { return []; }
+
+  const result: Conjunct[] = [];
+  for (const raw of splitTopLevelConjuncts(expr)) {
+    const c = raw.trim();
+    if (!c) { continue; }
+
+    const some = splitTopLevelSome(c);
+    if (some) {
+      result.push({ kind: 'restriction', propertyIri: some.propertyIri, targetIri: some.targetIri });
+    } else if (!RESTRICTION_OPS.some(op => hasTopLevelOp(c, op))) {
+      result.push({ kind: 'bare', targetIri: c });
+    }
+  }
+  return result;
+}
+
 // Canonical role-prefix ordering for Manchester class expressions.
 // laterality is handled separately via LATERALITY_PREFIX and always pinned last.
 const CANONICAL_ROLE_PREFIXES: readonly string[] = [

@@ -131,6 +131,26 @@
         "icon": "$(type-hierarchy-sub)"
       },
       {
+        "command": "ontograph.generateUmlDiagram",
+        "title": "Generate UML Diagram",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "ontograph.exportUmlDiagramDrawio",
+        "title": "Export UML Diagram to draw.io...",
+        "icon": "$(export)"
+      },
+      {
+        "command": "ontograph.exportUmlDiagramSvg",
+        "title": "Export UML Diagram to SVG...",
+        "icon": "$(export)"
+      },
+      {
+        "command": "ontograph.exportUmlDiagramPng",
+        "title": "Export UML Diagram to PNG...",
+        "icon": "$(export)"
+      },
+      {
         "command": "ontograph.openSparqlEditor",
         "title": "OntoGraph: Open SPARQL Editor",
         "icon": "$(search)"
@@ -197,6 +217,11 @@
         "command": "ontograph.copyIri",
         "title": "Copy Entity",
         "icon": "$(copy)"
+      },
+      {
+        "command": "ontograph.deleteEntity",
+        "title": "OntoGraph: Delete Entity...",
+        "icon": "$(remove)"
       },
       {
         "command": "ontograph.showEntityInfo",
@@ -285,6 +310,36 @@
           "group": "navigation@3"
         },
         {
+          "command": "ontograph.deleteEntity",
+          "when": "view == ontograph.classes",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ontograph.deleteEntity",
+          "when": "view == ontograph.inferredClasses",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ontograph.deleteEntity",
+          "when": "view == ontograph.objectProperties",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ontograph.deleteEntity",
+          "when": "view == ontograph.dataProperties",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ontograph.deleteEntity",
+          "when": "view == ontograph.annotationProperties",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ontograph.deleteEntity",
+          "when": "view == ontograph.individuals",
+          "group": "navigation@4"
+        },
+        {
           "command": "ontograph.navigateBack",
           "when": "view =~ /^ontograph\\./",
           "group": "navigation@-3",
@@ -307,6 +362,16 @@
           "command": "ontograph.openGraph",
           "when": "view =~ /^ontograph\\.(classes|inferredClasses|individuals)/ && viewItem =~ /^owlEntity/",
           "group": "2_navigate"
+        },
+        {
+          "command": "ontograph.generateUmlDiagram",
+          "when": "view =~ /^ontograph\\.(classes|inferredClasses|individuals)/ && viewItem =~ /^owlEntity/",
+          "group": "2_navigate"
+        },
+        {
+          "command": "ontograph.deleteEntity",
+          "when": "view =~ /^ontograph\\./ && viewItem =~ /^owlEntity/",
+          "group": "3_destructive"
         }
       ],
       "commandPalette": [
@@ -316,6 +381,10 @@
         },
         {
           "command": "ontograph.showEntityInfo",
+          "when": "false"
+        },
+        {
+          "command": "ontograph.deleteEntity",
           "when": "false"
         }
       ]
@@ -437,6 +506,39 @@
           "maximum": 5,
           "description": "Default neighbourhood depth for graph visualization"
         },
+        "ontograph.umlDiagram.defaultDepth": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Default relationship depth for a newly generated UML diagram"
+        },
+        "ontograph.umlDiagram.defaultDirection": {
+          "type": "string",
+          "enum": [
+            "TB",
+            "LR"
+          ],
+          "default": "LR",
+          "enumDescriptions": [
+            "Top to bottom (root at the top, descendants below)",
+            "Left to right (root at the left, descendants to the right)"
+          ],
+          "description": "Default layout flow direction for a newly generated UML diagram; can also be switched in-panel via the diagram's own Layout toggle"
+        },
+        "ontograph.umlDiagram.compositionProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "http://snomed.info/id/733931002",
+            "http://snomed.info/id/733930001",
+            "http://snomed.info/id/733932009",
+            "http://snomed.info/id/774081006"
+          ],
+          "markdownDescription": "Object property IRIs treated as composition (part-of) relationships when generating a UML diagram. Properties not listed here are never rendered as composition connectors (they appear as an excluded-relation badge instead). Defaults to SNOMED CT's four part-of properties (Constitutional/Regional/Systemic/Proper part of) since anatomy.owl is this project's reference ontology; clear the list or replace it with your own ontology's part-of-style property IRIs as needed."
+        },
         "ontograph.display.axiomEntityStyle": {
           "type": "string",
           "enum": [
@@ -456,6 +558,11 @@
           "type": "number",
           "default": 50000,
           "description": "Class count above which large-ontology optimisations are applied (Worker Thread parsing, ELK default)"
+        },
+        "ontograph.entity.defaultNamespace": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base IRI prefix used when creating new ontology entities. Must end with `#` or `/` (e.g., `http://example.org/ontology#`). Leave empty to derive the namespace from the ontology's declared IRI."
         }
       }
     }

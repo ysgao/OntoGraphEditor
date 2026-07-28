@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ReasonerBridge } from '../reasoner/ReasonerBridge';
+import { groupEquivalentClasses } from '../reasoner/ReasonerBridge';
 import type { OntologyModel } from '../model/OntologyModel';
 import type { InferredHierarchyProvider } from '../views/InferredHierarchyProvider';
 import { serializeToFunctional } from '../serializer/FunctionalSerializer';
@@ -65,6 +66,9 @@ export async function classifyOntology(
       if (!model.inferredSubClasses.has(OWL_THING)) {
         model.inferredSubClasses.set(OWL_THING, new Set());
       }
+
+      // Populate inferred (but unasserted) equivalent-class map on the model
+      model.inferredEquivalentClasses = groupEquivalentClasses(result.equivalentClasses);
 
       model.isClassified = true;
       model.classificationNeedsUpdate = false;

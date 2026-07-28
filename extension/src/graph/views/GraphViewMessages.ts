@@ -13,7 +13,7 @@ export interface GraphEdge {
   source: string;      // IRI
   target: string;      // IRI
   type: 'subClassOf' | 'equivalentTo' | 'disjointWith' | 'subPropertyOf'
-      | 'domain' | 'range' | 'type' | 'inverseOf' | 'inferred';
+      | 'domain' | 'range' | 'type' | 'inverseOf' | 'inferred' | 'directSupertype';
   label?: string;
   isInferred?: boolean;
 }

@@ -54,3 +54,16 @@ export class EntityEditHistory {
     this.current = newInitial;
   }
 }
+
+/**
+ * Remove each of `iris` from `map` if present, leaving all other entries
+ * untouched. Used after a label rename to drop other entities' cached
+ * editor history for entities whose axioms reference the renamed entity by
+ * IRI, so their next load re-renders fresh with the current label instead
+ * of serving stale rendered text (see specs/030-sync-labels-in-axioms).
+ */
+export function invalidateEntries(map: Map<string, EntityEditHistory>, iris: Iterable<string>): void {
+  for (const iri of iris) {
+    map.delete(iri);
+  }
+}

@@ -1,4 +1,4 @@
-import { OWLEntity, OntologyModel, getLabel, OWLClass, OWLObjectProperty, OWLDataProperty, OWLIndividual } from '../model/OntologyModel';
+import { OWLEntity, OntologyModel, getLabel, OWLClass, OWLObjectProperty, OWLDataProperty, OWLAnnotationProperty, OWLIndividual } from '../model/OntologyModel';
 import { manchesterToFunctional } from '../utils/ExpressionUtils';
 
 const OWL = 'http://www.w3.org/2002/07/owl#';
@@ -56,12 +56,20 @@ export function generateEntityCluster(entity: OWLEntity, model: OntologyModel): 
   const axioms: string[] = [];
   if (entity.type === 'class') {
     const cls = entity as OWLClass;
-    if (cls.equivalentClassIris.length > 0) {
-      axioms.push(`EquivalentClasses(${[cls.iri, ...cls.equivalentClassIris].map(iri).join(' ')})`);
+    if (cls.equivalentClassIris.length > 0 || cls.equivalentClassExpressions.length > 0) {
+      const members = [
+        iri(cls.iri),
+        ...cls.equivalentClassIris.map(iri),
+        ...cls.equivalentClassExpressions.map(manchesterToFunctional),
+      ];
+      axioms.push(`EquivalentClasses(${members.join(' ')})`);
     }
     for (const sup of cls.superClassIris) {
       if (sup === OWL_THING) { continue; }
       axioms.push(`SubClassOf(${iri(cls.iri)} ${iri(sup)})`);
+    }
+    for (const sup of cls.superClassExpressions) {
+      axioms.push(`SubClassOf(${iri(cls.iri)} ${manchesterToFunctional(sup)})`);
     }
     for (const dis of cls.disjointClassIris) {
       if (cls.iri < dis) {
@@ -98,6 +106,11 @@ export function generateEntityCluster(entity: OWLEntity, model: OntologyModel): 
       axioms.push(`DataPropertyRange(${iri(p.iri)} ${iri(r)})`);
     }
     if (p.isFunctional) { axioms.push(`FunctionalDataProperty(${iri(p.iri)})`); }
+  } else if (entity.type === 'annotationProperty') {
+    const p = entity as OWLAnnotationProperty;
+    for (const sup of p.superPropertyIris) {
+      axioms.push(`SubAnnotationPropertyOf(${iri(p.iri)} ${iri(sup)})`);
+    }
   } else if (entity.type === 'individual') {
     const ind = entity as OWLIndividual;
     for (const cls of ind.classIris) {
@@ -112,7 +125,6 @@ export function generateEntityCluster(entity: OWLEntity, model: OntologyModel): 
   }
 
   if (axioms.length > 0) {
-    out.push('');
     out.push(...axioms);
   }
 
@@ -121,8 +133,6 @@ export function generateEntityCluster(entity: OWLEntity, model: OntologyModel): 
 
 /**
  * Serialize an OntologyModel to OWL Functional Syntax (.ofn).
- * Complex class expressions stored as Manchester strings are omitted — the
- * asserted named-class hierarchy is sufficient for reasoner classification.
  */
 export function serializeToFunctional(model: OntologyModel): string {
   const out: string[] = [];
