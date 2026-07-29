@@ -80,6 +80,10 @@ Both panel classes (`authoringPanel.ts`, `graphPanel.ts`) must:
 - Rewrite all Angular asset URLs using `webview.asWebviewUri()` — Angular outputs relative paths that are invalid in the webview sandbox
 - Route via `HashLocationStrategy` (`useHash: true`) — HTML5 `pushState` routing does not work in webviews
 
+Two gotchas that follow from the above (see `apps/authoring-ui-vscode/CLAUDE.md` for the full writeup):
+- Because `<base href>` must point at the webview's own asset root, it diverges from the webview's real document address — so a plain `<a href="#/...">` hash link silently fails to navigate (browser treats it as cross-document nav, not same-page). The Angular side must intercept these clicks and drive routing through its own router API instead of relying on native href resolution.
+- Backend endpoints injected into the webview config need a proxy allowlist: only endpoints called via XHR should be rewritten to the local CORS proxy — endpoints used to build externally-opened links (help/docs pages, companion apps) must keep their real, unproxied value, or the local proxy silently turns them into dead `localhost:<port>/...` URLs.
+
 ### VsCodeService (Angular side)
 
 Contract: `specs/001-authoring-ui-integration/contracts/vscode-service-interface.ts`

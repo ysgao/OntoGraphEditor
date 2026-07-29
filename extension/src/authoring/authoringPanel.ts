@@ -238,6 +238,32 @@ export class AuthoringPanel {
 
     const proxiedAuthoring = rewrite(authoringEndpoint);
     const proxiedTs = rewrite(tsEndpoint);
+    // These microservices are siblings of authoring-services on the same upstream host —
+    // proxy them the same way rather than leaving them to resolve relative to the webview's
+    // own asset root (which is what happens if the Angular app falls back to relative paths).
+    const proxiedAag = rewrite('/authoring-acceptance-gateway/', authoringEndpoint);
+    const proxiedReleaseNotes = rewrite('/release-notes/', authoringEndpoint);
+    const proxiedRvf = rewrite('/rvf/', authoringEndpoint);
+    const proxiedTemplateService = rewrite('/template-service/', authoringEndpoint);
+    const proxiedTraceability = rewrite('/authoring-traceability-service/', authoringEndpoint);
+
+    // Endpoints the Angular app calls directly via XHR need to go through the local
+    // CORS/auth proxy. Everything else ui-configuration returns (scaUserGuideEndpoint,
+    // contactUsEndpoint, dailyBuildEndpoint, imsEndpoint, ...) is used to build links opened
+    // in the user's real browser (via vscode.env.openExternal or a plain <a> tag) and must
+    // keep its real, unproxied value — rewriting it would point those links at the proxy,
+    // which only knows how to forward to the authoring-services host.
+    const PROXIED_ENDPOINT_KEYS = new Set([
+      'authoringServicesEndpoint',
+      'terminologyServerEndpoint',
+      'aagEndpoint',
+      'releaseNotesEndpoint',
+      'rvfEndpoint',
+      'templateServiceEndpoint',
+      'traceabilityEndpoint',
+      'crsEndpoint',
+      'crsEndpoint.US',
+    ]);
 
     // Process uiConfiguration FIRST so we have all endpoint origins.
     let uiConfigToInject: object | undefined = undefined;
@@ -245,7 +271,7 @@ export class AuthoringPanel {
       const rawEndpoints = ((uiConfiguration as Record<string, unknown>).endpoints as Record<string, unknown>) || {};
       const rewrittenEndpoints: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(rawEndpoints)) {
-        if (typeof v === 'string' && v) {
+        if (typeof v === 'string' && v && PROXIED_ENDPOINT_KEYS.has(k)) {
           // ui-config sometimes returns absolute URLs, sometimes path-only.
           // Resolve path-only against authoringEndpoint's origin, then rewrite to proxy.
           rewrittenEndpoints[k] = rewrite(v, authoringEndpoint);
@@ -259,6 +285,15 @@ export class AuthoringPanel {
           ...rewrittenEndpoints,
           authoringServicesEndpoint: proxiedAuthoring,
           terminologyServerEndpoint: proxiedTs,
+          aagEndpoint: proxiedAag,
+          releaseNotesEndpoint: proxiedReleaseNotes,
+          rvfEndpoint: proxiedRvf,
+          templateServiceEndpoint: proxiedTemplateService,
+          traceabilityEndpoint: proxiedTraceability,
+          // Real (unproxied) host for links opened in the user's system browser — see
+          // header.js's openExternalApp, which resolves relative companion-app paths
+          // (browser, mrcm, reporting, ...) against this origin.
+          externalAppsOrigin: toOrigin(authoringEndpoint),
           // Jira collector scripts are blocked by CSP in the webview sandbox
           collectorEndpoint: '',
           msCollectorEndpoint: '',
@@ -282,6 +317,12 @@ export class AuthoringPanel {
       authoringServicesEndpoint: proxiedAuthoring,
       terminologyServerEndpoint: proxiedTs,
       imsEndpoint: imsEndpoint,
+      aagEndpoint: proxiedAag,
+      releaseNotesEndpoint: proxiedReleaseNotes,
+      rvfEndpoint: proxiedRvf,
+      templateServiceEndpoint: proxiedTemplateService,
+      traceabilityEndpoint: proxiedTraceability,
+      externalAppsOrigin: toOrigin(authoringEndpoint),
     };
     if (accountDetails) {
       ontographConfig.accountDetails = accountDetails;
