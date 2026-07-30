@@ -222,7 +222,12 @@ export class AuthoringPanel {
     const proxyPort = AuthoringPanel.proxy?.port;
     const proxyOrigin = proxyPort ? `http://localhost:${proxyPort}` : '';
 
-    const toOrigin = (url: string) => { try { return new URL(url).origin; } catch { return ''; } };
+    const toOrigin = (url: string) => {
+      try { return new URL(url).origin; } catch (err) {
+        console.warn('[OntoGraph] toOrigin: could not parse URL, external links will be relative-only:', url, err);
+        return '';
+      }
+    };
 
     // Rewrite an upstream URL to point at the local proxy, preserving the path.
     // Relative URLs are passed through (the Angular app resolves them itself).
@@ -241,26 +246,37 @@ export class AuthoringPanel {
     // These microservices are siblings of authoring-services on the same upstream host —
     // proxy them the same way rather than leaving them to resolve relative to the webview's
     // own asset root (which is what happens if the Angular app falls back to relative paths).
-    const proxiedAag = rewrite('/authoring-acceptance-gateway/', authoringEndpoint);
-    const proxiedReleaseNotes = rewrite('/release-notes/', authoringEndpoint);
-    const proxiedRvf = rewrite('/rvf/', authoringEndpoint);
-    const proxiedTemplateService = rewrite('/template-service/', authoringEndpoint);
-    const proxiedTraceability = rewrite('/authoring-traceability-service/', authoringEndpoint);
+    const SIBLING_ENDPOINTS: Array<{ key: string; path: string }> = [
+      { key: 'aagEndpoint', path: '/authoring-acceptance-gateway/' },
+      { key: 'releaseNotesEndpoint', path: '/release-notes/' },
+      { key: 'rvfEndpoint', path: '/rvf/' },
+      { key: 'templateServiceEndpoint', path: '/template-service/' },
+      { key: 'traceabilityEndpoint', path: '/authoring-traceability-service/' },
+    ];
+    const proxiedSiblings: Record<string, string> = {};
+    for (const { key, path } of SIBLING_ENDPOINTS) {
+      proxiedSiblings[key] = rewrite(path, authoringEndpoint);
+    }
+    const externalAppsOriginValue = toOrigin(authoringEndpoint);
 
-    // Endpoints the Angular app calls directly via XHR need to go through the local
-    // CORS/auth proxy. Everything else ui-configuration returns (scaUserGuideEndpoint,
-    // contactUsEndpoint, dailyBuildEndpoint, imsEndpoint, ...) is used to build links opened
-    // in the user's real browser (via vscode.env.openExternal or a plain <a> tag) and must
-    // keep its real, unproxied value — rewriting it would point those links at the proxy,
-    // which only knows how to forward to the authoring-services host.
-    const PROXIED_ENDPOINT_KEYS = new Set([
+    // Keys the Angular app calls directly via XHR need to go through the local CORS/auth proxy.
+    // Everything else ui-configuration returns (scaUserGuideEndpoint, contactUsEndpoint,
+    // dailyBuildEndpoint, imsEndpoint, ...) is used to build links opened in the user's real
+    // browser (via vscode.env.openExternal or a plain <a> tag) and must keep its real, unproxied
+    // value — rewriting it would point those links at the proxy, which only knows how to forward
+    // to the authoring-services host.
+    // ALWAYS_OVERRIDDEN_ENDPOINT_KEYS get an explicit proxied value below regardless of what
+    // uiConfiguration returned (so they work even if the backend omits them); the remaining
+    // PROXIED_ENDPOINT_KEYS members (browserEndpoint, crsEndpoint, crsEndpoint.US) are proxied
+    // in place from whatever raw value uiConfiguration returned.
+    const ALWAYS_OVERRIDDEN_ENDPOINT_KEYS = new Set([
       'authoringServicesEndpoint',
       'terminologyServerEndpoint',
-      'aagEndpoint',
-      'releaseNotesEndpoint',
-      'rvfEndpoint',
-      'templateServiceEndpoint',
-      'traceabilityEndpoint',
+      ...SIBLING_ENDPOINTS.map((s) => s.key),
+    ]);
+    const PROXIED_ENDPOINT_KEYS = new Set([
+      ...ALWAYS_OVERRIDDEN_ENDPOINT_KEYS,
+      'browserEndpoint',
       'crsEndpoint',
       'crsEndpoint.US',
     ]);
@@ -271,6 +287,11 @@ export class AuthoringPanel {
       const rawEndpoints = ((uiConfiguration as Record<string, unknown>).endpoints as Record<string, unknown>) || {};
       const rewrittenEndpoints: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(rawEndpoints)) {
+        // ALWAYS_OVERRIDDEN_ENDPOINT_KEYS are unconditionally overwritten by the explicit
+        // values below, so rewriting them here would be discarded work.
+        if (ALWAYS_OVERRIDDEN_ENDPOINT_KEYS.has(k)) {
+          continue;
+        }
         if (typeof v === 'string' && v && PROXIED_ENDPOINT_KEYS.has(k)) {
           // ui-config sometimes returns absolute URLs, sometimes path-only.
           // Resolve path-only against authoringEndpoint's origin, then rewrite to proxy.
@@ -285,15 +306,15 @@ export class AuthoringPanel {
           ...rewrittenEndpoints,
           authoringServicesEndpoint: proxiedAuthoring,
           terminologyServerEndpoint: proxiedTs,
-          aagEndpoint: proxiedAag,
-          releaseNotesEndpoint: proxiedReleaseNotes,
-          rvfEndpoint: proxiedRvf,
-          templateServiceEndpoint: proxiedTemplateService,
-          traceabilityEndpoint: proxiedTraceability,
+          ...proxiedSiblings,
           // Real (unproxied) host for links opened in the user's system browser — see
-          // header.js's openExternalApp, which resolves relative companion-app paths
+          // vsCodeService.js's openExternalApp, which resolves relative companion-app paths
           // (browser, mrcm, reporting, ...) against this origin.
-          externalAppsOrigin: toOrigin(authoringEndpoint),
+          externalAppsOrigin: externalAppsOriginValue,
+          // Real (unproxied) terminology-server URL — companion to externalAppsOrigin, needed
+          // by call sites (e.g. conceptEdit.js's viewConceptJson) that build externally-opened
+          // links from the terminology server path rather than the authoring-services origin.
+          terminologyServerExternalEndpoint: tsEndpoint,
           // Jira collector scripts are blocked by CSP in the webview sandbox
           collectorEndpoint: '',
           msCollectorEndpoint: '',
@@ -317,12 +338,9 @@ export class AuthoringPanel {
       authoringServicesEndpoint: proxiedAuthoring,
       terminologyServerEndpoint: proxiedTs,
       imsEndpoint: imsEndpoint,
-      aagEndpoint: proxiedAag,
-      releaseNotesEndpoint: proxiedReleaseNotes,
-      rvfEndpoint: proxiedRvf,
-      templateServiceEndpoint: proxiedTemplateService,
-      traceabilityEndpoint: proxiedTraceability,
-      externalAppsOrigin: toOrigin(authoringEndpoint),
+      ...proxiedSiblings,
+      externalAppsOrigin: externalAppsOriginValue,
+      terminologyServerExternalEndpoint: tsEndpoint,
     };
     if (accountDetails) {
       ontographConfig.accountDetails = accountDetails;
