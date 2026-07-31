@@ -4,8 +4,16 @@ import { runSearchConcepts } from './commands/searchConcepts';
 import { runGetConcept } from './commands/getConcept';
 import { runAddDescription } from './commands/addDescription';
 import { runAddRelationship } from './commands/addRelationship';
+import { runUpdateDescription } from './commands/updateDescription';
+import { runSetCaseSignificance } from './commands/setCaseSignificance';
 import { runInactivateConcept } from './commands/inactivateConcept';
 import { runSetDefinitionStatus } from './commands/setDefinitionStatus';
+import { runUpdateAxiom } from './commands/updateAxiom';
+import { runUpdateGciAxiom } from './commands/updateGciAxiom';
+import { runDeleteConcept } from './commands/deleteConcept';
+import { runDeleteDescription } from './commands/deleteDescription';
+import { runDeleteAxiom } from './commands/deleteAxiom';
+import { runDeleteGciAxiom } from './commands/deleteGciAxiom';
 import { runClassify } from './commands/classify';
 import { runValidate } from './commands/validate';
 
@@ -85,6 +93,38 @@ const COMMANDS: Command[] = [
       }),
   },
   {
+    name: 'update-description',
+    usage:
+      'update-description --id <SCTID> --description-id <descriptionId> [--term "<text>"] [--case-significance <value>] ' +
+      '[--project <projectKey> --task <taskKey>] (only if never versioned; reuses the existing descriptionId)',
+    required: ['id', 'description-id'],
+    run: (flags) =>
+      runUpdateDescription({
+        id: flags.id,
+        descriptionId: flags['description-id'],
+        term: flags.term,
+        caseSignificance: flags['case-significance'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'set-case-significance',
+    usage:
+      'set-case-significance --id <SCTID> --description-id <descriptionId> ' +
+      '--case-significance CASE_INSENSITIVE|INITIAL_CHARACTER_CASE_INSENSITIVE|ENTIRE_TERM_CASE_SENSITIVE ' +
+      '[--project <projectKey> --task <taskKey>] (only if never versioned)',
+    required: ['id', 'description-id', 'case-significance'],
+    run: (flags) =>
+      runSetCaseSignificance({
+        id: flags.id,
+        descriptionId: flags['description-id'],
+        caseSignificance: flags['case-significance'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
     name: 'add-relationship',
     usage:
       'add-relationship --id <SCTID> --type <SCTID> --target <SCTID> [--group N] [--axiom-index N] ' +
@@ -126,6 +166,78 @@ const COMMANDS: Command[] = [
         id: flags.id,
         status: flags.status,
         axiomIndex: flags['axiom-index'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'update-axiom',
+    usage:
+      'update-axiom --id <SCTID> --axiom-id <axiomId> --relationships \'[{"active":true,"groupId":0,"type":{"conceptId":"..."},"target":{"conceptId":"..."}}]\' ' +
+      '[--project <projectKey> --task <taskKey>] (only if never versioned; replaces the axiom\'s relationships wholesale)',
+    required: ['id', 'axiom-id', 'relationships'],
+    run: (flags) =>
+      runUpdateAxiom({
+        id: flags.id,
+        axiomId: flags['axiom-id'],
+        relationships: flags.relationships,
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'update-gci-axiom',
+    usage:
+      'update-gci-axiom --id <SCTID> --axiom-id <axiomId> --relationships \'[{"active":true,"groupId":0,"type":{"conceptId":"..."},"target":{"conceptId":"..."}}]\' ' +
+      '[--project <projectKey> --task <taskKey>] (only if never versioned; replaces the axiom\'s relationships wholesale)',
+    required: ['id', 'axiom-id', 'relationships'],
+    run: (flags) =>
+      runUpdateGciAxiom({
+        id: flags.id,
+        axiomId: flags['axiom-id'],
+        relationships: flags.relationships,
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'delete-concept',
+    usage: 'delete-concept --id <SCTID> [--project <projectKey> --task <taskKey>] (only if never versioned)',
+    required: ['id'],
+    run: (flags) => runDeleteConcept({ id: flags.id, project: flags.project, task: flags.task }),
+  },
+  {
+    name: 'delete-description',
+    usage: 'delete-description --id <SCTID> --description-id <descriptionId> [--project <projectKey> --task <taskKey>] (only if never versioned)',
+    required: ['id', 'description-id'],
+    run: (flags) =>
+      runDeleteDescription({
+        id: flags.id,
+        descriptionId: flags['description-id'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'delete-axiom',
+    usage: 'delete-axiom --id <SCTID> --axiom-id <axiomId> [--project <projectKey> --task <taskKey>] (only if never versioned)',
+    required: ['id', 'axiom-id'],
+    run: (flags) =>
+      runDeleteAxiom({
+        id: flags.id,
+        axiomId: flags['axiom-id'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'delete-gci-axiom',
+    usage: 'delete-gci-axiom --id <SCTID> --axiom-id <axiomId> [--project <projectKey> --task <taskKey>] (only if never versioned)',
+    required: ['id', 'axiom-id'],
+    run: (flags) =>
+      runDeleteGciAxiom({
+        id: flags.id,
+        axiomId: flags['axiom-id'],
         project: flags.project,
         task: flags.task,
       }),

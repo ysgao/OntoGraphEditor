@@ -66,6 +66,16 @@ const ALLOWED_RELATIONSHIP_FIELDS = [
 const ALLOWED_RELATIONSHIP_REF_FIELDS = ['conceptId', 'fsn', 'pt', 'active', 'definitionStatus', 'effectiveTime', 'moduleId', 'released'];
 const ALLOWED_AXIOM_FIELDS = ['axiomId', 'definitionStatus', 'effectiveTime', 'active', 'released', 'moduleId', 'relationships'];
 
+/** The three SNOMED CT case significance values — mirrors conceptEdit.js's
+ * toggleCaseSignificance(), which cycles CASE_INSENSITIVE → INITIAL_CHARACTER_CASE_INSENSITIVE →
+ * ENTIRE_TERM_CASE_SENSITIVE → CASE_INSENSITIVE. Exactly one applies at a time. */
+const CASE_SIGNIFICANCE_VALUES = ['CASE_INSENSITIVE', 'INITIAL_CHARACTER_CASE_INSENSITIVE', 'ENTIRE_TERM_CASE_SENSITIVE'] as const;
+type CaseSignificanceValue = (typeof CASE_SIGNIFICANCE_VALUES)[number];
+
+function isCaseSignificanceValue(value: string): value is CaseSignificanceValue {
+  return (CASE_SIGNIFICANCE_VALUES as readonly string[]).includes(value);
+}
+
 function pick(obj: Record<string, unknown>, allowed: string[]): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {};
   for (const key of allowed) {
@@ -304,6 +314,300 @@ export async function inactivateConcept(ctx: ActionContext, input: InactivateCon
     if (input.associationRefsetId && input.associationTargetId) {
       concept.associationTargets = { [input.associationRefsetId]: [input.associationTargetId] };
     }
+    return null;
+  });
+}
+
+export interface UpdateDescriptionInput extends TaskContextInput {
+  conceptId: string;
+  descriptionId: string;
+  term?: string;
+  caseSignificance?: string;
+}
+
+/** Updates an existing, never-versioned description in place — the same descriptionId is kept,
+ * no new description is created. Mirrors conceptEdit.js's updateDescription() for a plain
+ * term-only edit (no type/language change passed): that path never creates a new description or
+ * reassigns concept.fsn, it just mutates description.term on the existing object. Unlike the
+ * real UI — which lets caseSignificance be toggled even on released descriptions via a separate,
+ * looser guard — this action blocks ANY edit once effectiveTime is set, since the description
+ * must never have been versioned. */
+export async function updateDescription(ctx: ActionContext, input: UpdateDescriptionInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.descriptionId) {
+    return { statusCode: 400, body: { error: 'conceptId and descriptionId are required.' } };
+  }
+  if (!input.term && !input.caseSignificance) {
+    return { statusCode: 400, body: { error: 'At least one of term or caseSignificance must be provided.' } };
+  }
+  if (input.caseSignificance && !isCaseSignificanceValue(input.caseSignificance)) {
+    return { statusCode: 400, body: { error: `caseSignificance must be one of: ${CASE_SIGNIFICANCE_VALUES.join(', ')}.` } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as Record<string, unknown>[]) : [];
+    const description = descriptions.find((d) => d.descriptionId === input.descriptionId);
+    if (!description) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no description ${input.descriptionId}.` } };
+    }
+    if (description.effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: {
+          error: `Description ${input.descriptionId} has effectiveTime ${String(description.effectiveTime)} set (already versioned) — cannot update.`,
+        },
+      };
+    }
+    if (input.term) {
+      description.term = input.term;
+    }
+    if (input.caseSignificance) {
+      description.caseSignificance = input.caseSignificance;
+    }
+    return null;
+  });
+}
+
+export interface SetCaseSignificanceInput extends TaskContextInput {
+  conceptId: string;
+  descriptionId: string;
+  caseSignificance: string;
+}
+
+/** Sets a description's caseSignificance to exactly one of the three SNOMED CT values, addressed
+ * by descriptionId — a dedicated command (mirroring setDefinitionStatus's own enum validation)
+ * rather than relying on updateDescription's looser optional caseSignificance param, so an
+ * invalid value gets a clear "must be one of ..." error instead of silently being written.
+ * Deliberately has NO effectiveTime/released guard, matching the real UI's
+ * toggleCaseSignificance() (`ng-disabled="isStatic || isLockedModule(...) || showInferredRels"`
+ * — it omits description.released entirely): case significance may be changed even on an
+ * already-versioned description. */
+export async function setCaseSignificance(ctx: ActionContext, input: SetCaseSignificanceInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.descriptionId || !input.caseSignificance) {
+    return { statusCode: 400, body: { error: 'conceptId, descriptionId, and caseSignificance are required.' } };
+  }
+  if (!isCaseSignificanceValue(input.caseSignificance)) {
+    return { statusCode: 400, body: { error: `caseSignificance must be one of: ${CASE_SIGNIFICANCE_VALUES.join(', ')}.` } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as Record<string, unknown>[]) : [];
+    const description = descriptions.find((d) => d.descriptionId === input.descriptionId);
+    if (!description) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no description ${input.descriptionId}.` } };
+    }
+    description.caseSignificance = input.caseSignificance;
+    return null;
+  });
+}
+
+export interface DeleteDescriptionInput extends TaskContextInput {
+  conceptId: string;
+  descriptionId: string;
+}
+
+/** Mirrors conceptEdit.js's removeDescription(): splice the description out of the concept's
+ * descriptions array and PUT the whole concept back. Only permitted when the description itself
+ * has never been versioned — the UI hides the remove button via `ng-if="!description.effectiveTime
+ * && !description.released"`; we enforce the same guard server-side since there's no dedicated
+ * description-delete endpoint on Snowstorm. */
+export async function deleteDescription(ctx: ActionContext, input: DeleteDescriptionInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.descriptionId) {
+    return { statusCode: 400, body: { error: 'conceptId and descriptionId are required.' } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as Record<string, unknown>[]) : [];
+    const index = descriptions.findIndex((d) => d.descriptionId === input.descriptionId);
+    if (index === -1) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no description ${input.descriptionId}.` } };
+    }
+    if (descriptions[index].effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: {
+          error: `Description ${input.descriptionId} has effectiveTime ${String(descriptions[index].effectiveTime)} set (already versioned) — cannot delete.`,
+        },
+      };
+    }
+    descriptions.splice(index, 1);
+    concept.descriptions = descriptions;
+    return null;
+  });
+}
+
+export interface UpdateAxiomInput extends TaskContextInput {
+  conceptId: string;
+  axiomId: string;
+  relationships: Record<string, unknown>[];
+}
+
+/** Replaces an existing, never-versioned class axiom's relationships wholesale, addressed by
+ * axiomId rather than by index (unlike addRelationship, which only appends and is index-based).
+ * Mirrors conceptEdit.js's relationship-editing functions (setAxiomRelationshipTargetConcept,
+ * updateRelationship, dropAxiomRelationshipGroup, etc.) — all of them mutate axiom.relationships
+ * in memory and funnel into the same whole-concept PUT via autoSave(); there is no dedicated
+ * per-axiom or per-relationship REST endpoint in Snowstorm's browser API, confirmed by grepping
+ * every $http.put/post call in terminologyServerService.js. */
+export async function updateAxiom(ctx: ActionContext, input: UpdateAxiomInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.axiomId || !Array.isArray(input.relationships)) {
+    return { statusCode: 400, body: { error: 'conceptId, axiomId, and relationships (array) are required.' } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const axioms = Array.isArray(concept.classAxioms) ? (concept.classAxioms as Record<string, unknown>[]) : [];
+    const axiom = axioms.find((a) => a.axiomId === input.axiomId);
+    if (!axiom) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no class axiom ${input.axiomId}.` } };
+    }
+    if (axiom.effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: { error: `Axiom ${input.axiomId} has effectiveTime ${String(axiom.effectiveTime)} set (already versioned) — cannot update.` },
+      };
+    }
+    axiom.relationships = input.relationships;
+    return null;
+  });
+}
+
+export interface UpdateGciAxiomInput extends TaskContextInput {
+  conceptId: string;
+  axiomId: string;
+  relationships: Record<string, unknown>[];
+}
+
+/** Same operation as updateAxiom, applied to gciAxioms instead of classAxioms. Kept as a
+ * distinct command (not a shared "component" abstraction) for parity with deleteAxiom/
+ * deleteGciAxiom, even though the underlying logic is identical modulo which array is targeted —
+ * this mirrors how conceptEdit.js's own relationship-editing functions are parameterized by the
+ * axiom object rather than branching on axiom.type. definitionStatus is deliberately NOT exposed
+ * here (setDefinitionStatus stays classAxioms-only): the real UI hides the definitionStatus
+ * toggle entirely for GCI axioms (axiomTemplate.html gates it on `axiom.type === 'additional'`),
+ * since GCIs are always necessary-conditions and have no primitive/fully-defined distinction. */
+export async function updateGciAxiom(ctx: ActionContext, input: UpdateGciAxiomInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.axiomId || !Array.isArray(input.relationships)) {
+    return { statusCode: 400, body: { error: 'conceptId, axiomId, and relationships (array) are required.' } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const axioms = Array.isArray(concept.gciAxioms) ? (concept.gciAxioms as Record<string, unknown>[]) : [];
+    const axiom = axioms.find((a) => a.axiomId === input.axiomId);
+    if (!axiom) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no GCI axiom ${input.axiomId}.` } };
+    }
+    if (axiom.effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: { error: `GCI axiom ${input.axiomId} has effectiveTime ${String(axiom.effectiveTime)} set (already versioned) — cannot update.` },
+      };
+    }
+    axiom.relationships = input.relationships;
+    return null;
+  });
+}
+
+export interface DeleteAxiomInput extends TaskContextInput {
+  conceptId: string;
+  axiomId: string;
+}
+
+/** Mirrors conceptEdit.js's removeAxiom() for type === axiomType.ADDITIONAL: splice the class
+ * axiom out and PUT the concept back, guarded by the same two rules the UI enforces — the axiom
+ * must never have been versioned, and a concept must always retain at least one class axiom
+ * (the UI blocks removal via `scope.concept.classAxioms.length < 2`). GCI axioms have no such
+ * minimum — see deleteGciAxiom, which is a distinct command precisely because that rule differs. */
+export async function deleteAxiom(ctx: ActionContext, input: DeleteAxiomInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.axiomId) {
+    return { statusCode: 400, body: { error: 'conceptId and axiomId are required.' } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const axioms = Array.isArray(concept.classAxioms) ? (concept.classAxioms as Record<string, unknown>[]) : [];
+    const index = axioms.findIndex((a) => a.axiomId === input.axiomId);
+    if (index === -1) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no class axiom ${input.axiomId}.` } };
+    }
+    if (axioms.length < 2) {
+      return { statusCode: 409, body: { error: `Concept ${input.conceptId} has only one class axiom — a concept must retain at least one.` } };
+    }
+    if (axioms[index].effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: {
+          error: `Axiom ${input.axiomId} has effectiveTime ${String(axioms[index].effectiveTime)} set (already versioned) — cannot delete.`,
+        },
+      };
+    }
+    axioms.splice(index, 1);
+    concept.classAxioms = axioms;
+    return null;
+  });
+}
+
+export interface DeleteGciAxiomInput extends TaskContextInput {
+  conceptId: string;
+  axiomId: string;
+}
+
+/** Mirrors conceptEdit.js's removeAxiom() for type === axiomType.GCI: splice the GCI axiom out
+ * and PUT the concept back. Unlike deleteAxiom, there is no minimum-count rule — GCI axioms are
+ * optional, so the only guard is that the targeted axiom must never have been versioned. */
+export async function deleteGciAxiom(ctx: ActionContext, input: DeleteGciAxiomInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.axiomId) {
+    return { statusCode: 400, body: { error: 'conceptId and axiomId are required.' } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const axioms = Array.isArray(concept.gciAxioms) ? (concept.gciAxioms as Record<string, unknown>[]) : [];
+    const index = axioms.findIndex((a) => a.axiomId === input.axiomId);
+    if (index === -1) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no GCI axiom ${input.axiomId}.` } };
+    }
+    if (axioms[index].effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: {
+          error: `GCI axiom ${input.axiomId} has effectiveTime ${String(axioms[index].effectiveTime)} set (already versioned) — cannot delete.`,
+        },
+      };
+    }
+    axioms.splice(index, 1);
+    concept.gciAxioms = axioms;
     return null;
   });
 }

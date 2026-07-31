@@ -6,7 +6,20 @@ import type { ActionContext, ActionResult } from './actions/types';
 import { createConcept } from './actions/createConcept';
 import { getConcept } from './actions/getConcept';
 import { searchConcepts } from './actions/searchConcepts';
-import { addDescription, addRelationship, inactivateConcept, setDefinitionStatus } from './actions/updateConcept';
+import {
+  addDescription,
+  addRelationship,
+  inactivateConcept,
+  setDefinitionStatus,
+  updateDescription,
+  setCaseSignificance,
+  deleteDescription,
+  updateAxiom,
+  deleteAxiom,
+  updateGciAxiom,
+  deleteGciAxiom,
+} from './actions/updateConcept';
+import { deleteConcept } from './actions/deleteConcept';
 import { classify, validate } from './actions/classification';
 
 /**
@@ -129,6 +142,62 @@ export class ControlServer {
       if (method === 'POST' && inactivateMatch) {
         const conceptId = decodeURIComponent(inactivateMatch[1]);
         await this.dispatch(req, res, (body) => inactivateConcept(this.actionContext, { ...body, conceptId }));
+        return;
+      }
+
+      if (method === 'DELETE' && conceptIdMatch) {
+        const conceptId = decodeURIComponent(conceptIdMatch[1]);
+        await this.dispatch(req, res, (body) => deleteConcept(this.actionContext, { ...body, conceptId }));
+        return;
+      }
+
+      const descriptionByIdMatch = path.match(/^\/concepts\/([^/]+)\/descriptions\/([^/]+)$/);
+      if (method === 'POST' && descriptionByIdMatch) {
+        const conceptId = decodeURIComponent(descriptionByIdMatch[1]);
+        const descriptionId = decodeURIComponent(descriptionByIdMatch[2]);
+        await this.dispatch(req, res, (body) => updateDescription(this.actionContext, { ...body, conceptId, descriptionId }));
+        return;
+      }
+
+      const caseSignificanceMatch = path.match(/^\/concepts\/([^/]+)\/descriptions\/([^/]+)\/case-significance$/);
+      if (method === 'POST' && caseSignificanceMatch) {
+        const conceptId = decodeURIComponent(caseSignificanceMatch[1]);
+        const descriptionId = decodeURIComponent(caseSignificanceMatch[2]);
+        await this.dispatch(req, res, (body) => setCaseSignificance(this.actionContext, { ...body, conceptId, descriptionId }));
+        return;
+      }
+      if (method === 'DELETE' && descriptionByIdMatch) {
+        const conceptId = decodeURIComponent(descriptionByIdMatch[1]);
+        const descriptionId = decodeURIComponent(descriptionByIdMatch[2]);
+        await this.dispatch(req, res, (body) => deleteDescription(this.actionContext, { ...body, conceptId, descriptionId }));
+        return;
+      }
+
+      const axiomByIdMatch = path.match(/^\/concepts\/([^/]+)\/axioms\/([^/]+)$/);
+      if (method === 'POST' && axiomByIdMatch) {
+        const conceptId = decodeURIComponent(axiomByIdMatch[1]);
+        const axiomId = decodeURIComponent(axiomByIdMatch[2]);
+        await this.dispatch(req, res, (body) => updateAxiom(this.actionContext, { ...body, conceptId, axiomId }));
+        return;
+      }
+      if (method === 'DELETE' && axiomByIdMatch) {
+        const conceptId = decodeURIComponent(axiomByIdMatch[1]);
+        const axiomId = decodeURIComponent(axiomByIdMatch[2]);
+        await this.dispatch(req, res, (body) => deleteAxiom(this.actionContext, { ...body, conceptId, axiomId }));
+        return;
+      }
+
+      const gciAxiomByIdMatch = path.match(/^\/concepts\/([^/]+)\/gci-axioms\/([^/]+)$/);
+      if (method === 'POST' && gciAxiomByIdMatch) {
+        const conceptId = decodeURIComponent(gciAxiomByIdMatch[1]);
+        const axiomId = decodeURIComponent(gciAxiomByIdMatch[2]);
+        await this.dispatch(req, res, (body) => updateGciAxiom(this.actionContext, { ...body, conceptId, axiomId }));
+        return;
+      }
+      if (method === 'DELETE' && gciAxiomByIdMatch) {
+        const conceptId = decodeURIComponent(gciAxiomByIdMatch[1]);
+        const axiomId = decodeURIComponent(gciAxiomByIdMatch[2]);
+        await this.dispatch(req, res, (body) => deleteGciAxiom(this.actionContext, { ...body, conceptId, axiomId }));
         return;
       }
 
