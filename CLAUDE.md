@@ -55,19 +55,21 @@ extension/
 │   ├── graph/graphPanel.ts        # WebviewPanel for OntoGraph-lite
 │   └── shared/
 │       ├── localProxy.ts    # CORS/cookie relay for the webview's XHR calls
-│       ├── controlServer.ts # Token-authed local API for cli/ (see Headless CLI)
+│       ├── controlServer.ts # Token-authed local API for cli/ — route table only
+│       ├── actions/         # One module per authoring-cli action (see Headless CLI)
+│       ├── cliInstaller.ts  # Auto `npm link`s the bundled cli/ on activation
 │       ├── sessionState.ts  # In-memory signed-in/current-task state
 │       ├── sessionFile.ts   # Writes ~/.ontograph/session.json for cli/ discovery
 │       └── httpJson.ts      # Shared raw-http/https JSON request helper
-├── esbuild.mjs              # Bundle config
+├── esbuild.mjs              # Bundle config; also bundles cli/dist into dist/cli/
 └── package.json             # Extension manifest + contributes
 
 cli/                         # Headless CLI (global command `authoring-cli`, see below)
 ├── src/
-│   ├── index.ts             # Entry point, arg parsing, command dispatch
+│   ├── index.ts             # Entry point, arg parsing, command registry/dispatch
 │   ├── session.ts           # Reads ~/.ontograph/session.json
 │   ├── client.ts            # HTTP client for ControlServer
-│   └── commands/createConcept.ts
+│   └── commands/            # One file per action (createConcept, searchConcepts, classify, ...)
 └── package.json
 
 apps/
@@ -116,9 +118,11 @@ Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone bro
 
 ## Headless CLI (`authoring-cli`)
 
-`cli/` is a standalone npm workspace, globally linked as `authoring-cli` (`cd cli && npm link`). It lets an AI model (e.g. Claude Code) perform authoring actions — currently `create-concept` — against the same task branch a human has open in the Authoring Workbench, reusing the extension's IMS session cookie. **This is a different tool from `apps/OntoGraph-lite`'s own `ontograph` CLI (package `@ysgao/ontograph-cli`)** — no shared name, code, or purpose.
+`cli/` is a standalone npm workspace, exposed as the global command `authoring-cli`. It lets an AI model (e.g. Claude Code) perform authoring actions — concept create/get/search/update (description, relationship, definition status, inactivate), plus classify/validate — against the same task branch a human has open in the Authoring Workbench, reusing the extension's IMS session cookie. **This is a different tool from `apps/OntoGraph-lite`'s own `ontograph` CLI (package `@ysgao/ontograph-cli`)** — no shared name, code, or purpose.
 
-**How it connects:** the extension host runs `ControlServer` (`extension/src/shared/controlServer.ts`), a token-authed local HTTP server (`GET /session`, `POST /concepts`), and writes its address/token plus the currently-open task to `~/.ontograph/session.json` (`sessionFile.ts`) on activation and on every `TASK_CONTEXT_CHANGED` message. `cli/` reads that file, calls `ControlServer` directly, and prints the result — no VS Code API access needed from the CLI process itself.
+**Installation is automatic, not a dev workflow step:** `cli/`'s TypeScript source is never shipped to end users — only `apps/*` submodule content and the extension's own compiled bundle reach a packaged install. `extension/esbuild.mjs`'s post-build step copies `cli/dist/` plus a trimmed, dependency-free `package.json` (name/version/`bin` only — no `devDependencies`) into `extension/dist/cli/`; `extension/src/shared/cliInstaller.ts`'s `ensureAuthoringCliLinked()` runs `npm link` against that bundled copy on extension activation, comparing the bundled version against `context.globalState` so it only re-links after an actual version change (not on every activation). This is deliberate: shipping only the compiled artifact (never the editable source) prevents users from hand-modifying the CLI and drifting out of sync with whatever extension version they're running — the source of truth stays in the repo, what ships is a build artifact, and re-linking on every version bump keeps the global command automatically current. Manual fallback/troubleshooting: **OntoGraph: Set Up authoring-cli Command**, or `cd <extension install dir>/dist/cli && npm link`. During development (this repo, not an installed extension), `cli/`'s own `npm run build && npm link` still works the same way it always has.
+
+**How it connects:** the extension host runs `ControlServer` (`extension/src/shared/controlServer.ts`), a token-authed local HTTP server, and writes its address/token plus the currently-open task to `~/.ontograph/session.json` (`sessionFile.ts`) on activation and on every `TASK_CONTEXT_CHANGED` message. `cli/` reads that file, calls `ControlServer` directly, and prints the result — no VS Code API access needed from the CLI process itself. Each action is its own module under `extension/src/shared/actions/`, sharing `resolveTaskContext()`/`resolveDefaultModuleId()` (`actions/taskContext.ts`) — `controlServer.ts` itself is just the HTTP route table.
 
 **Deliberate design decision — headless over correctness-by-reuse:** `ControlServer` builds the Snowstorm concept payload itself (module resolution, branch-root derivation, axiom shape) rather than delegating the actual REST call to the already-open, already-authenticated Authoring webview (which would reuse the Angular app's own tested `terminologyServerService.js`/`componentAuthoringUtil.js` logic for free). Delegating to the webview was rejected because it would require the Authoring Workbench panel to be open for the CLI to work at all — unacceptable for unattended/AI-driven use. The accepted cost: `ControlServer`'s payload logic is a hand-maintained parallel of the Angular app's real implementation and has already drifted from it twice (missing `axiomId`/`moduleId` on the axiom; hardcoded international module instead of the project's real extension module). **When adding new `authoring-cli` actions, cross-check the equivalent logic in `apps/authoring-ui-vscode/app/shared/terminology-server-service/terminologyServerService.js`, `component-authoring-util/componentAuthoringUtil.js`, and `metadata-service/metadataService.js` rather than assuming the existing pattern generalizes.**
 

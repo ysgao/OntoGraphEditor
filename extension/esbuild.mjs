@@ -96,3 +96,33 @@ if (fs.existsSync(authoringUiDist)) {
   fs.mkdirSync(targetAuthoringDir, { recursive: true });
   fs.cpSync(authoringUiDist, targetAuthoringDir, { recursive: true });
 }
+
+// Post-build: Bundle the headless authoring-cli (cli/) so the extension can auto `npm link`
+// it on activation — see extension/src/shared/cliInstaller.ts. Only the compiled dist/ and a
+// trimmed package.json ship (no devDependencies, no TS source): `npm link` with no args runs
+// an install step first, and a dependency-free package.json keeps that step a no-op — fully
+// offline-safe. Shipping the real cli/package.json (with typescript/@types/node as
+// devDependencies) would risk that install step trying to fetch them on every user's machine.
+const cliDist = path.resolve('../cli/dist');
+const cliPackageJsonSrc = path.resolve('../cli/package.json');
+const targetCliDir = path.resolve('dist/cli');
+
+if (fs.existsSync(cliDist) && fs.existsSync(cliPackageJsonSrc)) {
+  console.log(`Bundling authoring-cli from ${cliDist} to ${targetCliDir}`);
+  if (fs.existsSync(targetCliDir)) {
+    fs.rmSync(targetCliDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(targetCliDir, { recursive: true });
+  fs.cpSync(cliDist, path.join(targetCliDir, 'dist'), { recursive: true });
+
+  const cliPackageJson = JSON.parse(fs.readFileSync(cliPackageJsonSrc, 'utf8'));
+  const trimmedPackageJson = {
+    name: cliPackageJson.name,
+    version: cliPackageJson.version,
+    private: true,
+    bin: cliPackageJson.bin,
+  };
+  fs.writeFileSync(path.join(targetCliDir, 'package.json'), JSON.stringify(trimmedPackageJson, null, 2) + '\n');
+} else {
+  console.warn(`[warn] authoring-cli not built at ${cliDist} — run "npm run build:cli" first. authoring-cli will not be bundled.`);
+}

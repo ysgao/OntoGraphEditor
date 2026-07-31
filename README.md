@@ -14,7 +14,7 @@ A unified ontology and terminology engineering environment for Visual Studio Cod
 - **SNOMED CT Authoring UI** — embedded fork of [IHTSDO/authoring-ui](https://github.com/IHTSDO/authoring-ui) for clinical terminology editing against a Snowstorm backend
 - **Live IPC Bridge** — selecting a concept in the authoring panel auto-focuses the ontograph, and clicking an ontograph node loads the editing fields; all synchronization happens over the VS Code extension host (no direct cross-webview calls)
 - **Navigation History** — back/forward commands mirror browser history within the ontology panel
-- **Headless CLI (`authoring-cli`)** — a standalone command-line tool that lets an AI model create SNOMED CT concepts against whatever task you have open in the Authoring Workbench, without needing the panel focused or even visible
+- **Authoring CLI (`authoring-cli`)** — a command-line tool that lets an AI model create SNOMED CT concepts against whatever task you have open in the Authoring Workbench, without needing the panel focused or even visible
 
 ---
 
@@ -150,14 +150,13 @@ npm run package:vsix
 
 ---
 
-## Headless CLI (`authoring-cli`)
+## Authoring CLI (`authoring-cli`)
 
-A separate, standalone command-line tool (in `cli/`) for AI-driven authoring — distinct from `apps/OntoGraph-lite`'s own `ontograph` CLI. It reuses whatever IMS session and task you already have open in the Authoring Workbench, so there's nothing extra to authenticate.
+A separate, standalone command-line tool (bundled with the extension, in `cli/`) for AI-driven authoring. It reuses whatever IMS session and task you already have open in the Authoring Workbench, so there's nothing extra to authenticate.
+
+**No setup needed** — installing the extension is enough. The extension bundles a compiled copy of the CLI and automatically runs `npm link` for it the first time it activates, so `authoring-cli` just works as soon as VS Code has loaded the extension once.
 
 ```bash
-# Build and link once
-cd cli && npm run build && npm link
-
 # With the extension running and a task open in the Authoring Workbench:
 authoring-cli create-concept \
   --fsn "Test finding" --tag finding --pt "Test finding" --parent 404684003
@@ -168,7 +167,7 @@ authoring-cli create-concept \
   --project MYPROJECT --task MYPROJECT-123
 ```
 
-Requires the extension to be running and signed in to IMS (`OntoGraph: Set IMS Session Cookie` or `OntoGraph: Import IMS Cookies from Chrome`) — it does not work standalone. Re-run `npm run build:cli` after editing `cli/` source; the global `authoring-cli` link points at `cli/dist/`.
+Requires the extension to be running and signed in to IMS (`OntoGraph: Set IMS Session Cookie` or `OntoGraph: Import IMS Cookies from Chrome`) — it does not work standalone. If the automatic setup fails (check the "OntoGraph CLI Setup" output channel), run **OntoGraph: Set Up authoring-cli Command** from the Command Palette to retry, or do it manually: `cd <extension install dir>/dist/cli && npm link`.
 
 ---
 

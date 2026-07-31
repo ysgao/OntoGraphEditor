@@ -5,6 +5,7 @@ import { readChromeCookiesForHost, cookiesToHeader } from './chromeCookies';
 import { ControlServer } from '../shared/controlServer';
 import { writeSessionFile } from '../shared/sessionFile';
 import { onSessionStateChange, setSignedIn } from '../shared/sessionState';
+import { ensureAuthoringCliLinked } from '../shared/cliInstaller';
 
 export async function activate(context: vscode.ExtensionContext, proxy: LocalProxy): Promise<ControlServer> {
   const controlServer = new ControlServer(context);
@@ -24,9 +25,18 @@ export async function activate(context: vscode.ExtensionContext, proxy: LocalPro
   setSignedIn(!!existingCookie);
   console.log(`[OntoGraph] Control server (for cli/) started on localhost:${port}`);
 
+  ensureAuthoringCliLinked(context).catch((err) => {
+    console.error('[OntoGraph] ensureAuthoringCliLinked failed unexpectedly:', err);
+  });
+
   context.subscriptions.push(
     vscode.commands.registerCommand('ontographEditor.openAuthoring', () => {
       AuthoringPanel.createOrShow(context, proxy);
+    }),
+    vscode.commands.registerCommand('ontographEditor.linkAuthoringCli', () => {
+      ensureAuthoringCliLinked(context, true).catch((err) => {
+        console.error('[OntoGraph] ensureAuthoringCliLinked (forced) failed unexpectedly:', err);
+      });
     }),
     vscode.commands.registerCommand('ontographEditor.importChromeCookies', () => {
       importChromeCookies(context, proxy);

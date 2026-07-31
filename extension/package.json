@@ -101,6 +101,10 @@
         "title": "OntoGraph: Import IMS Cookies from Chrome (macOS)"
       },
       {
+        "command": "ontographEditor.linkAuthoringCli",
+        "title": "OntoGraph: Set Up authoring-cli Command"
+      },
+      {
         "command": "ontograph.searchEntity",
         "title": "OntoGraph: Search Entity",
         "icon": "$(search)"
