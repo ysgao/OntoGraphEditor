@@ -58,13 +58,16 @@ Before merging, run the automated check script from the repo root (while still i
 
 **If output is `⚠ WARNING`**: upstream modified customization-scope files. The script will list each affected file and the exact `git diff` command to review it. Inspect all listed files before proceeding — you will need to resolve conflicts manually.
 
-Alternatively, inspect manually:
+Alternatively, inspect manually — pass the same `PROTECTED_PATHS` entries listed in `scripts/check-upstream-conflicts.sh`:
 
 ```bash
 git diff HEAD..upstream/master -- \
-  app/shared/vscode-service/vsCodeService.js \
+  app/shared/vscode-service \
   app/app.js \
-  app/shared/concept-edit/conceptEdit.js
+  app/shared/concept-edit/conceptEdit.js \
+  app/components/edit/edit.js \
+  app/shared/sca-service/scaService.js \
+  app/shared/taxonomy-tree/taxonomyTree.js
 ```
 
 ### Step 1.4 — Merge upstream changes
@@ -75,7 +78,7 @@ git merge upstream/master
 
 **If the merge is clean (no conflicts)**: proceed to Step 1.5.
 
-**If conflicts arise in customization-scope files** (`vsCodeService.js`, `app.js`, `conceptEdit.js`):
+**If conflicts arise in customization-scope files** (see `PROTECTED_PATHS` in `scripts/check-upstream-conflicts.sh` for the current list):
 
 1. Open each conflicted file in your editor.
 2. Preserve the VS Code integration code (marked with `<<<<<<< HEAD`).
@@ -138,7 +141,7 @@ npm run build-all
 **If build fails**:
 
 1. Read the error output — it will identify which submodule introduced the break.
-2. For Angular errors in `apps/authoring-ui-vscode`: the upstream merge likely changed an API used by `vsCodeService`. Update `app/shared/vscode-service/vsCodeService.js` to match the new API.
+2. For AngularJS errors in `apps/authoring-ui-vscode`: the upstream merge likely changed an API used by `vsCodeService`. Update `app/shared/vscode-service/vsCodeService.js` to match the new API.
 3. For TypeScript errors in `extension/src/`: unlikely from a submodule sync alone — check if `graphPanel.ts` or `authoringPanel.ts` references paths that changed.
 4. Re-run `npm run build-all` after fixes.
 

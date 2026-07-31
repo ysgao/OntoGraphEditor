@@ -146,7 +146,7 @@ Quick reference:
 # 1. Sync authoring-ui-vscode with upstream IHTSDO changes
 cd apps/authoring-ui-vscode
 git fetch upstream
-../../scripts/check-upstream-conflicts.sh upstream/master   # verify no customization-scope conflicts (vsCodeService.js, app.js, conceptEdit.js)
+../../scripts/check-upstream-conflicts.sh upstream/master   # verify no customization-scope conflicts (see PROTECTED_PATHS in the script for the current list)
 git merge upstream/master   # VS Code customizations stay intact
 cd ../..
 
