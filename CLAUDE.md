@@ -112,13 +112,15 @@ Two gotchas that follow from the above (see `apps/authoring-ui-vscode/CLAUDE.md`
 
 Contract: `specs/001-authoring-ui-integration/contracts/vscode-service-interface.ts`
 
-Location in Angular app: `src/app/core/services/vscode.service.ts`
+Actual location in the AngularJS 1.x app: `app/shared/vscode-service/vsCodeService.js` (see `apps/authoring-ui-vscode/CLAUDE.md` for the full dual-mode writeup — the contract file above predates the real implementation and doesn't match its path).
 
 Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone browser dev mode — log warning, no crash).
 
 ## Headless CLI (`authoring-cli`)
 
-`cli/` is a standalone npm workspace, exposed as the global command `authoring-cli`. It lets an AI model (e.g. Claude Code) perform authoring actions — concept create/get/search/update (description, relationship, definition status, inactivate), plus classify/validate — against the same task branch a human has open in the Authoring Workbench, reusing the extension's IMS session cookie. **This is a different tool from `apps/OntoGraph-lite`'s own `ontograph` CLI (package `@ysgao/ontograph-cli`)** — no shared name, code, or purpose.
+`cli/` is a standalone npm workspace, exposed as the global command `authoring-cli`. It lets an AI model (e.g. Claude Code) perform authoring actions against the same task branch a human has open in the Authoring Workbench, reusing the extension's IMS session cookie. Run `authoring-cli` with no arguments for the full, current command list with usage strings — it's the source of truth over any list duplicated here. Broadly: concept lifecycle (`create-concept`, `get-concept`, `search-concepts`, `delete-concept` — delete only when never versioned, mirroring `terminologyServerService.js`'s own `deleteConcept()`), description/relationship/axiom edits (`add-description`, `update-description`, `set-case-significance`, `set-acceptability`, `add-relationship`, `update-axiom`/`update-gci-axiom`, `set-definition-status`, `inactivate-concept`, `delete-description`/`delete-axiom`/`delete-gci-axiom` — deletes and in-place updates are all guarded on `effectiveTime` being null, since a versioned/released component must not be mutated), task-level operations (`classify`, `validate`, `review-concepts`), and confirmation/inspection tools (`current-task` — confirms the CLI's auto-detected task context matches what's open in the UI, via the same live session state the extension already tracks; `validate-concept` — read-only check of a concept's current saved state against Snowstorm's pre-save validation rules, without saving anything). **This is a different tool from `apps/OntoGraph-lite`'s own `ontograph` CLI (package `@ysgao/ontograph-cli`)** — no shared name, code, or purpose.
+
+**Save-time validation, surfaced to both the CLI and the webview:** every concept-mutating action requests Snowstorm's `?validate=true` on its PUT/POST (`extension/src/shared/actions/updateConcept.ts`'s `fetchAndUpdateConcept`, `createConcept.ts`), the same flag the interactive editor's save flow uses. Any `validationResults` in the response are (a) printed by the CLI on success, not just on failure (`cli/src/validationOutput.ts`'s `printValidationResults`), and (b) pushed into the live Authoring panel if one is open, via `AuthoringPanel.postMessage` (`extension/src/shared/actions/validationBroadcast.ts`, a new `VALIDATION_RESULTS` `IpcMessage` variant) — see `apps/authoring-ui-vscode/CLAUDE.md`'s `VALIDATION_RESULTS` section for the Angular-side handling. `validate-concept` gets the same messages without triggering a save, but deliberately does not push to the webview (a read-only check shouldn't overwrite what a human might be seeing that reflects their own unsaved edits).
 
 **Installation is automatic, not a dev workflow step:** `cli/`'s TypeScript source is never shipped to end users — only `apps/*` submodule content and the extension's own compiled bundle reach a packaged install. `extension/esbuild.mjs`'s post-build step copies `cli/dist/` plus a trimmed, dependency-free `package.json` (name/version/`bin` only — no `devDependencies`) into `extension/dist/cli/`; `extension/src/shared/cliInstaller.ts`'s `ensureAuthoringCliLinked()` runs `npm link` against that bundled copy on extension activation, comparing the bundled version against `context.globalState` so it only re-links after an actual version change (not on every activation). This is deliberate: shipping only the compiled artifact (never the editable source) prevents users from hand-modifying the CLI and drifting out of sync with whatever extension version they're running — the source of truth stays in the repo, what ships is a build artifact, and re-linking on every version bump keeps the global command automatically current. Manual fallback/troubleshooting: **OntoGraph: Set Up authoring-cli Command**, or `cd <extension install dir>/dist/cli && npm link`. During development (this repo, not an installed extension), `cli/`'s own `npm run build && npm link` still works the same way it always has.
 
@@ -144,8 +146,8 @@ Quick reference:
 # 1. Sync authoring-ui-vscode with upstream IHTSDO changes
 cd apps/authoring-ui-vscode
 git fetch upstream
-../../scripts/check-upstream-conflicts.sh upstream/master   # verify no customization-scope conflicts
-git merge upstream/master   # VsCodeService customizations stay intact
+../../scripts/check-upstream-conflicts.sh upstream/master   # verify no customization-scope conflicts (vsCodeService.js, app.js, conceptEdit.js)
+git merge upstream/master   # VS Code customizations stay intact
 cd ../..
 
 # 2. Sync OntoGraph-lite fork with upstream ysgao/OntoGraph-lite

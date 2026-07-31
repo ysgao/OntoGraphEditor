@@ -14,7 +14,7 @@ A unified ontology and terminology engineering environment for Visual Studio Cod
 - **SNOMED CT Authoring UI** — embedded fork of [IHTSDO/authoring-ui](https://github.com/IHTSDO/authoring-ui) for clinical terminology editing against a Snowstorm backend
 - **Live IPC Bridge** — selecting a concept in the authoring panel auto-focuses the ontograph, and clicking an ontograph node loads the editing fields; all synchronization happens over the VS Code extension host (no direct cross-webview calls)
 - **Navigation History** — back/forward commands mirror browser history within the ontology panel
-- **Authoring CLI (`authoring-cli`)** — a command-line tool that lets an AI model create SNOMED CT concepts against whatever task you have open in the Authoring Workbench, without needing the panel focused or even visible
+- **Authoring CLI (`authoring-cli`)** — a command-line tool that lets an AI model create, edit, validate, and (when never versioned) delete SNOMED CT content against whatever task you have open in the Authoring Workbench, without needing the panel focused or even visible
 
 ---
 
@@ -165,7 +165,18 @@ authoring-cli create-concept \
 authoring-cli create-concept \
   --fsn "Test finding" --tag finding --parent 404684003 \
   --project MYPROJECT --task MYPROJECT-123
+
+# Confirm the CLI is pointed at the same task you have open in the UI:
+authoring-cli current-task
+
+# Check a concept's current validation state (convention warnings/errors) without saving anything:
+authoring-cli validate-concept --id 404684003
+
+# Full command list, always current:
+authoring-cli
 ```
+
+Beyond concept creation, the CLI covers the concept's full edit surface — descriptions (add/update/delete, case significance, dialect acceptability), relationships and axioms (add/replace/delete, including GCI axioms), definition status, inactivation, and unpublished-content deletion (`delete-concept`/`delete-description`/`delete-axiom`/`delete-gci-axiom`, permitted only when the target has never been versioned — mirroring the interactive editor's own delete behavior). Every save requests the same validation Snowstorm runs for a manual save in the UI: results print in the CLI output, and if the Authoring Workbench panel is open on that same concept, the same warnings/errors appear there too, live.
 
 Requires the extension to be running and signed in to IMS (`OntoGraph: Set IMS Session Cookie` or `OntoGraph: Import IMS Cookies from Chrome`) — it does not work standalone. If the automatic setup fails (check the "OntoGraph CLI Setup" output channel), run **OntoGraph: Set Up authoring-cli Command** from the Command Palette to retry, or do it manually: `cd <extension install dir>/dist/cli && npm link`.
 

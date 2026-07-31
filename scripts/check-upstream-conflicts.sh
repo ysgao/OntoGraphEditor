@@ -10,12 +10,9 @@ set -euo pipefail
 REMOTE_BRANCH="${1:-upstream/master}"
 
 PROTECTED_PATHS=(
-  "src/app/core/services/vscode.service.ts"
-  "src/app/app.module.ts"
-  "src/app/app-routing.module.ts"
-)
-GLOB_PATTERNS=(
-  "src/app/core/services/vscode*.ts"
+  "app/shared/vscode-service/vsCodeService.js"
+  "app/app.js"
+  "app/shared/concept-edit/conceptEdit.js"
 )
 
 echo "[check-upstream-conflicts] Checking diff against ${REMOTE_BRANCH} for customization-scope files..."
@@ -31,19 +28,6 @@ CONFLICTS=()
 for PROTECTED in "${PROTECTED_PATHS[@]}"; do
   if echo "$CHANGED_FILES" | grep -qF "$PROTECTED"; then
     CONFLICTS+=("$PROTECTED")
-  fi
-done
-
-# Glob pattern check (vscode*.ts)
-for GLOB in "${GLOB_PATTERNS[@]}"; do
-  MATCHES=$(echo "$CHANGED_FILES" | grep -E "$(echo "$GLOB" | sed 's/\*/[^\/]*/g')" || true)
-  if [ -n "$MATCHES" ]; then
-    while IFS= read -r MATCH; do
-      # Avoid duplicates from exact path check
-      if ! printf '%s\n' "${CONFLICTS[@]+"${CONFLICTS[@]}"}" | grep -qF "$MATCH"; then
-        CONFLICTS+=("$MATCH")
-      fi
-    done <<< "$MATCHES"
   fi
 done
 

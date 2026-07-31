@@ -62,9 +62,9 @@ Alternatively, inspect manually:
 
 ```bash
 git diff HEAD..upstream/master -- \
-  src/app/core/services/vscode.service.ts \
-  src/app/app.module.ts \
-  src/app/app-routing.module.ts
+  app/shared/vscode-service/vsCodeService.js \
+  app/app.js \
+  app/shared/concept-edit/conceptEdit.js
 ```
 
 ### Step 1.4 — Merge upstream changes
@@ -75,7 +75,7 @@ git merge upstream/master
 
 **If the merge is clean (no conflicts)**: proceed to Step 1.5.
 
-**If conflicts arise in customization-scope files** (`vscode.service.ts`, `app.module.ts`, `app-routing.module.ts`):
+**If conflicts arise in customization-scope files** (`vsCodeService.js`, `app.js`, `conceptEdit.js`):
 
 1. Open each conflicted file in your editor.
 2. Preserve the VS Code integration code (marked with `<<<<<<< HEAD`).
@@ -138,7 +138,7 @@ npm run build-all
 **If build fails**:
 
 1. Read the error output — it will identify which submodule introduced the break.
-2. For Angular errors in `apps/authoring-ui-vscode`: the upstream merge likely changed an API used by `VsCodeService`. Update `vscode.service.ts` to match the new API.
+2. For Angular errors in `apps/authoring-ui-vscode`: the upstream merge likely changed an API used by `vsCodeService`. Update `app/shared/vscode-service/vsCodeService.js` to match the new API.
 3. For TypeScript errors in `extension/src/`: unlikely from a submodule sync alone — check if `graphPanel.ts` or `authoringPanel.ts` references paths that changed.
 4. Re-run `npm run build-all` after fixes.
 
@@ -161,5 +161,5 @@ git commit -m "chore: sync upstream submodules $(date +%Y-%m-%d)"
 |---------|--------------|------------|
 | `git fetch upstream` fails with auth error | Upstream remote URL misconfigured | Re-run Step 1.1 to verify remote URL |
 | Angular build fails with missing module | Upstream added a new dependency | Run `npm install` inside `apps/authoring-ui-vscode` |
-| `vscode.service.ts` missing after merge | Merge incorrectly chose upstream version | `git checkout HEAD -- src/app/core/services/vscode.service.ts` then re-commit |
+| `vsCodeService.js` missing after merge | Merge incorrectly chose upstream version | `git checkout HEAD -- app/shared/vscode-service/vsCodeService.js` then re-commit |
 | Extension fails to activate after build | GraphPanel or AuthoringPanel path changed | Inspect `extension/src/graphPanel.ts` and `authoringPanel.ts` for path references |
