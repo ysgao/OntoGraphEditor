@@ -577,7 +577,7 @@
     "watch": "tsc -watch -p ./",
     "build": "node esbuild.mjs",
     "package": "node esbuild.mjs --minify",
-    "package:vsix": "vsce package --out dist/"
+    "package:vsix": "vsce package --out dist/ --readme-path ../README.md"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.2",
