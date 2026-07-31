@@ -14,6 +14,7 @@ A unified ontology and terminology engineering environment for Visual Studio Cod
 - **SNOMED CT Authoring UI** — embedded fork of [IHTSDO/authoring-ui](https://github.com/IHTSDO/authoring-ui) for clinical terminology editing against a Snowstorm backend
 - **Live IPC Bridge** — selecting a concept in the authoring panel auto-focuses the ontograph, and clicking an ontograph node loads the editing fields; all synchronization happens over the VS Code extension host (no direct cross-webview calls)
 - **Navigation History** — back/forward commands mirror browser history within the ontology panel
+- **Headless CLI (`authoring-cli`)** — a standalone command-line tool that lets an AI model create SNOMED CT concepts against whatever task you have open in the Authoring Workbench, without needing the panel focused or even visible
 
 ---
 
@@ -64,9 +65,9 @@ All settings are under `ontographEditor.*` and `ontograph.*` in VS Code Settings
 
 | Setting | Default | Description |
 |---|---|---|
-| `ontographEditor.authoringServicesEndpoint` | `https://dev-snowstorm.ihtsdotools.org/authoring-services/` | Authoring Services backend URL |
-| `ontographEditor.terminologyServerEndpoint` | `https://dev-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/` | Snowstorm SNOMED CT endpoint |
-| `ontographEditor.imsEndpoint` | `https://dev-snowstorm.ihtsdotools.org/` | IHTSDO Identity Management System endpoint |
+| `ontographEditor.authoringServicesEndpoint` | `https://uat-snowstorm.ihtsdotools.org/authoring-services/` | Authoring Services backend URL |
+| `ontographEditor.terminologyServerEndpoint` | `https://uat-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/` | Snowstorm SNOMED CT endpoint |
+| `ontographEditor.imsEndpoint` | `https://uat-snowstorm.ihtsdotools.org/` | IHTSDO Identity Management System endpoint |
 | `ontograph.reasoner.engine` | `elk` | Reasoner: `elk`, `hermit`, or `auto` |
 | `ontograph.reasoner.javaPath` | `java` | Path to Java executable (must be Java 11+) |
 | `ontograph.reasoner.jvmArgs` | `["-Xmx4g"]` | Extra JVM arguments for the reasoner process |
@@ -146,6 +147,28 @@ npm run package:vsix
 | `OntoGraph: Export Ontology As…` | Export the ontology to a file |
 | `OntoGraph: Sign In to IMS` | Authenticate via username/password |
 | `OntoGraph: Set IMS Session Cookie` | Paste a session cookie from the browser |
+
+---
+
+## Headless CLI (`authoring-cli`)
+
+A separate, standalone command-line tool (in `cli/`) for AI-driven authoring — distinct from `apps/OntoGraph-lite`'s own `ontograph` CLI. It reuses whatever IMS session and task you already have open in the Authoring Workbench, so there's nothing extra to authenticate.
+
+```bash
+# Build and link once
+cd cli && npm run build && npm link
+
+# With the extension running and a task open in the Authoring Workbench:
+authoring-cli create-concept \
+  --fsn "Test finding" --tag finding --pt "Test finding" --parent 404684003
+
+# Or target a specific project/task explicitly:
+authoring-cli create-concept \
+  --fsn "Test finding" --tag finding --parent 404684003 \
+  --project MYPROJECT --task MYPROJECT-123
+```
+
+Requires the extension to be running and signed in to IMS (`OntoGraph: Set IMS Session Cookie` or `OntoGraph: Import IMS Cookies from Chrome`) — it does not work standalone. Re-run `npm run build:cli` after editing `cli/` source; the global `authoring-cli` link points at `cli/dist/`.
 
 ---
 

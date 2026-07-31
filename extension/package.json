@@ -441,17 +441,17 @@
       "properties": {
         "ontographEditor.authoringServicesEndpoint": {
           "type": "string",
-          "default": "https://dev-snowstorm.ihtsdotools.org/authoring-services/",
+          "default": "https://uat-snowstorm.ihtsdotools.org/authoring-services/",
           "description": "Authoring Services backend URL, e.g. https://authoring.example.org/authoring-services/"
         },
         "ontographEditor.terminologyServerEndpoint": {
           "type": "string",
-          "default": "https://dev-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/",
+          "default": "https://uat-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/",
           "description": "Snowstorm SNOMED CT terminology server endpoint"
         },
         "ontographEditor.imsEndpoint": {
           "type": "string",
-          "default": "https://dev-snowstorm.ihtsdotools.org/",
+          "default": "https://uat-snowstorm.ihtsdotools.org/",
           "description": "IHTSDO Identity Management System endpoint"
         },
         "ontograph.reasoner.engine": {

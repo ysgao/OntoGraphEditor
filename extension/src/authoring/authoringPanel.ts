@@ -8,6 +8,8 @@ import type { IpcMessage } from '../shared/ipcMessages';
 import { DisplayConfigStore } from './displayConfig';
 import { isDisplayConfigChange } from './displayConfigMessages';
 import type { DisplayConfigInitMessage } from './displayConfigMessages';
+import { isTaskContextChanged } from '../shared/ipcMessages';
+import { setCurrentTask } from '../shared/sessionState';
 
 export class AuthoringPanel {
   private static instance: AuthoringPanel | undefined;
@@ -96,7 +98,7 @@ export class AuthoringPanel {
   async initialize(): Promise<void> {
     const cfg = vscode.workspace.getConfiguration('ontographEditor');
     const authoringEndpoint = cfg.get<string>('authoringServicesEndpoint', 'https://dev-authoring.ihtsdotools.org/authoring-services/');
-    const imsEndpoint = cfg.get<string>('imsEndpoint', 'https://dev-snowstorm.ihtsdotools.org/');
+    const imsEndpoint = cfg.get<string>('imsEndpoint', 'https://uat-snowstorm.ihtsdotools.org/');
     const sessionCookie = (await AuthoringPanel.context?.secrets.get('imsSessionCookie')) ?? '';
 
     const [uiConfig, accountDetails] = await Promise.all([
@@ -215,9 +217,9 @@ export class AuthoringPanel {
     );
 
     const cfg = vscode.workspace.getConfiguration('ontographEditor');
-    const authoringEndpoint = cfg.get<string>('authoringServicesEndpoint', 'https://dev-snowstorm.ihtsdotools.org/authoring-services/');
-    const tsEndpoint = cfg.get<string>('terminologyServerEndpoint', 'https://dev-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/');
-    const imsEndpoint = cfg.get<string>('imsEndpoint', 'https://dev-snowstorm.ihtsdotools.org/');
+    const authoringEndpoint = cfg.get<string>('authoringServicesEndpoint', 'https://uat-snowstorm.ihtsdotools.org/authoring-services/');
+    const tsEndpoint = cfg.get<string>('terminologyServerEndpoint', 'https://uat-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/');
+    const imsEndpoint = cfg.get<string>('imsEndpoint', 'https://uat-snowstorm.ihtsdotools.org/');
 
     const proxyPort = AuthoringPanel.proxy?.port;
     const proxyOrigin = proxyPort ? `http://localhost:${proxyPort}` : '';
@@ -389,6 +391,12 @@ body,
     if (message.command === 'WEBVIEW_READY') {
       console.log('[OntoGraph] WEBVIEW_READY received, sending DISPLAY_CONFIG_INIT');
       this.sendDisplayConfigInit();
+      return;
+    }
+
+    if (isTaskContextChanged(message)) {
+      console.log('[OntoGraph] TASK_CONTEXT_CHANGED received:', JSON.stringify(message.payload));
+      setCurrentTask(message.payload);
       return;
     }
 

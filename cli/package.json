@@ -1,0 +1,17 @@
+{
+  "name": "authoring-cli",
+  "version": "1.0.0",
+  "description": "Headless CLI for AI-driven authoring actions against the task currently open in the OntoGraph Editor VS Code extension.",
+  "private": true,
+  "bin": {
+    "authoring-cli": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "18.x",
+    "typescript": "^5.0.0"
+  }
+}

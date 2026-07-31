@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The extension host (`extension/`) brokers all communication between the two sandboxed webview panels via `postMessage`.
 
+A third component, `cli/` (global command `authoring-cli`), lets an AI model perform authoring actions (e.g. `create-concept`) headlessly against whatever task a human has open in the Authoring workbench — see [Headless CLI](#headless-cli-authoring-cli) below. It is unrelated to `apps/OntoGraph-lite`'s own `ontograph` CLI.
+
 ## Commands
 
 From repo root:
@@ -18,6 +20,7 @@ From repo root:
 npm run build-all        # Build Angular client then extension bundle
 npm run build:client     # Angular prod build only (apps/authoring-ui-vscode)
 npm run build:extension  # esbuild extension bundle only
+npm run build:cli        # tsc build for cli/ (not part of build-all/package:vsix — separate tool)
 npm run package:vsix     # Full package: validate + build Angular + bundle extension (minified) + vsce pack
 ```
 ```
@@ -46,10 +49,26 @@ npm run package   # esbuild bundle (minified, for publish)
 extension/
 ├── src/
 │   ├── extension.ts         # Activation, command registration, IPC routing
-│   ├── authoringPanel.ts    # WebviewPanel for authoring-ui-vscode
-│   └── graphPanel.ts        # WebviewPanel for OntoGraph-lite
+│   ├── authoring/
+│   │   ├── authoringPanel.ts      # WebviewPanel for authoring-ui-vscode
+│   │   └── activateAuthoring.ts   # Commands, cookie auth, starts ControlServer
+│   ├── graph/graphPanel.ts        # WebviewPanel for OntoGraph-lite
+│   └── shared/
+│       ├── localProxy.ts    # CORS/cookie relay for the webview's XHR calls
+│       ├── controlServer.ts # Token-authed local API for cli/ (see Headless CLI)
+│       ├── sessionState.ts  # In-memory signed-in/current-task state
+│       ├── sessionFile.ts   # Writes ~/.ontograph/session.json for cli/ discovery
+│       └── httpJson.ts      # Shared raw-http/https JSON request helper
 ├── esbuild.mjs              # Bundle config
 └── package.json             # Extension manifest + contributes
+
+cli/                         # Headless CLI (global command `authoring-cli`, see below)
+├── src/
+│   ├── index.ts             # Entry point, arg parsing, command dispatch
+│   ├── session.ts           # Reads ~/.ontograph/session.json
+│   ├── client.ts            # HTTP client for ControlServer
+│   └── commands/createConcept.ts
+└── package.json
 
 apps/
 ├── authoring-ui-vscode/     # Git submodule: fork of IHTSDO/authoring-ui
@@ -69,9 +88,12 @@ AuthoringPanel  ←→  extension.ts (IPC router)  ←→  GraphPanel
 postMessage JSON                                  postMessage JSON
 ```
 
-Two event types cross the bridge:
+Two event types cross the panel-to-panel bridge (routed via `ontographEditor.ipcRoute` in `extension.ts`):
 - `CONCEPT_FOCUS` — authoring → graph: `{ command, payload: { id, label } }`
 - `GRAPH_NODE_SELECT` — graph → authoring: `{ command, payload: { id } }`
+
+A third type is host-internal only (handled in `authoringPanel.ts`'s `handleMessage`, never forwarded to `ipcRoute`):
+- `TASK_CONTEXT_CHANGED` — authoring webview → extension host: `{ command, payload: { projectKey, taskKey, branchPath } | null }`, sent whenever the human opens or leaves a task. Updates `sessionState.ts` and triggers a `sessionFile.ts` rewrite — this is how the headless CLI (`cli/`) learns which task is currently open.
 
 ### Webview Panel Requirements
 
@@ -91,6 +113,16 @@ Contract: `specs/001-authoring-ui-integration/contracts/vscode-service-interface
 Location in Angular app: `src/app/core/services/vscode.service.ts`
 
 Must gracefully degrade when `acquireVsCodeApi()` is unavailable (standalone browser dev mode — log warning, no crash).
+
+## Headless CLI (`authoring-cli`)
+
+`cli/` is a standalone npm workspace, globally linked as `authoring-cli` (`cd cli && npm link`). It lets an AI model (e.g. Claude Code) perform authoring actions — currently `create-concept` — against the same task branch a human has open in the Authoring Workbench, reusing the extension's IMS session cookie. **This is a different tool from `apps/OntoGraph-lite`'s own `ontograph` CLI (package `@ysgao/ontograph-cli`)** — no shared name, code, or purpose.
+
+**How it connects:** the extension host runs `ControlServer` (`extension/src/shared/controlServer.ts`), a token-authed local HTTP server (`GET /session`, `POST /concepts`), and writes its address/token plus the currently-open task to `~/.ontograph/session.json` (`sessionFile.ts`) on activation and on every `TASK_CONTEXT_CHANGED` message. `cli/` reads that file, calls `ControlServer` directly, and prints the result — no VS Code API access needed from the CLI process itself.
+
+**Deliberate design decision — headless over correctness-by-reuse:** `ControlServer` builds the Snowstorm concept payload itself (module resolution, branch-root derivation, axiom shape) rather than delegating the actual REST call to the already-open, already-authenticated Authoring webview (which would reuse the Angular app's own tested `terminologyServerService.js`/`componentAuthoringUtil.js` logic for free). Delegating to the webview was rejected because it would require the Authoring Workbench panel to be open for the CLI to work at all — unacceptable for unattended/AI-driven use. The accepted cost: `ControlServer`'s payload logic is a hand-maintained parallel of the Angular app's real implementation and has already drifted from it twice (missing `axiomId`/`moduleId` on the axiom; hardcoded international module instead of the project's real extension module). **When adding new `authoring-cli` actions, cross-check the equivalent logic in `apps/authoring-ui-vscode/app/shared/terminology-server-service/terminologyServerService.js`, `component-authoring-util/componentAuthoringUtil.js`, and `metadata-service/metadataService.js` rather than assuming the existing pattern generalizes.**
+
+**Classification/validation status in the webview:** `scaService.js`'s STOMP/WebSocket connection to authoring-services is skipped entirely in VS Code mode (webview sandbox limitation), so real-time job-completion notifications never arrive there. `edit.js`'s `pollClassificationStatusInVsCode()` works around this with an HTTP poll (gated to VS Code mode only), calling `scaService.clearClassificationStatusCacheForTask()` before each check — `authoring-services` caches `latestClassificationJson`, so skipping the cache-evict call reads back a permanently stale "RUNNING" status even after the job finishes.
 
 ## Active Feature
 

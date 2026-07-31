@@ -4,13 +4,15 @@
   "description": "Unified ontology and terminology engineering environment for VS Code",
   "private": true,
   "workspaces": [
-    "extension"
+    "extension",
+    "cli"
   ],
   "scripts": {
     "setup": "npm install && (cd apps/OntoGraph-lite && npm install) && (cd apps/authoring-ui-vscode && npm install --legacy-peer-deps)",
     "build:extension": "npm run build --prefix extension",
     "build:client": "cd apps/authoring-ui-vscode && npx grunt build",
     "build:graph": "cd apps/OntoGraph-lite && npm run build",
+    "build:cli": "npm run build --prefix cli",
     "validate-submodules": "./scripts/validate-submodules.sh",
     "build-all": "npm run validate-submodules && npm run build:client && npm run build:graph && npm run build:extension",
     "package:vsix": "npm run validate-submodules && npm run build:client && npm run build:graph && (cd extension && npx vsce package --out dist/)"

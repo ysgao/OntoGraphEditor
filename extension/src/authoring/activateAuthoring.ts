@@ -2,8 +2,28 @@ import * as vscode from 'vscode';
 import { AuthoringPanel } from './authoringPanel';
 import { LocalProxy } from '../shared/localProxy';
 import { readChromeCookiesForHost, cookiesToHeader } from './chromeCookies';
+import { ControlServer } from '../shared/controlServer';
+import { writeSessionFile } from '../shared/sessionFile';
+import { onSessionStateChange, setSignedIn } from '../shared/sessionState';
 
-export function activate(context: vscode.ExtensionContext, proxy: LocalProxy): void {
+export async function activate(context: vscode.ExtensionContext, proxy: LocalProxy): Promise<ControlServer> {
+  const controlServer = new ControlServer(context);
+  const port = await controlServer.start();
+
+  onSessionStateChange((state) => {
+    writeSessionFile({
+      host: '127.0.0.1',
+      port,
+      token: controlServer.token,
+      signedIn: state.signedIn,
+      currentTask: state.currentTask,
+    });
+  });
+
+  const existingCookie = await context.secrets.get('imsSessionCookie');
+  setSignedIn(!!existingCookie);
+  console.log(`[OntoGraph] Control server (for cli/) started on localhost:${port}`);
+
   context.subscriptions.push(
     vscode.commands.registerCommand('ontographEditor.openAuthoring', () => {
       AuthoringPanel.createOrShow(context, proxy);
@@ -19,17 +39,20 @@ export function activate(context: vscode.ExtensionContext, proxy: LocalProxy): v
         if (cookie) {
           await context.secrets.store('imsSessionCookie', cookie);
           proxy.updateSessionCookie(cookie);
+          setSignedIn(true);
           AuthoringPanel.reinitialize();
           vscode.window.showInformationMessage('Cookie saved and session updated.');
         }
       });
     })
   );
+
+  return controlServer;
 }
 
 async function importChromeCookies(context: vscode.ExtensionContext, proxy: LocalProxy): Promise<void> {
   const cfg = vscode.workspace.getConfiguration('ontographEditor');
-  const imsEndpoint = cfg.get<string>('imsEndpoint', 'https://dev-snowstorm.ihtsdotools.org/');
+  const imsEndpoint = cfg.get<string>('imsEndpoint', 'https://uat-snowstorm.ihtsdotools.org/');
   let host: string;
   try { host = new URL(imsEndpoint).hostname; } catch {
     vscode.window.showErrorMessage(`OntoGraph: invalid imsEndpoint: ${imsEndpoint}`);
@@ -55,6 +78,7 @@ async function importChromeCookies(context: vscode.ExtensionContext, proxy: Loca
 
     await context.secrets.store('imsSessionCookie', cookieHeader);
     proxy.updateSessionCookie(cookieHeader);
+    setSignedIn(true);
     AuthoringPanel.reinitialize();
     vscode.window.showInformationMessage('Cookies imported from Chrome.');
   } catch (e) {

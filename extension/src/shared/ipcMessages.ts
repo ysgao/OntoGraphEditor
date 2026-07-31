@@ -21,7 +21,17 @@ export interface GraphNodeSelectMessage {
   };
 }
 
-export type IpcMessage = ConceptFocusMessage | GraphNodeSelectMessage;
+export interface TaskContextChangedMessage {
+  command: 'TASK_CONTEXT_CHANGED';
+  /** null when the user has navigated away from any task-editing screen. */
+  payload: {
+    projectKey: string;
+    taskKey: string;
+    branchPath: string;
+  } | null;
+}
+
+export type IpcMessage = ConceptFocusMessage | GraphNodeSelectMessage | TaskContextChangedMessage;
 
 export function isConceptFocus(msg: unknown): msg is ConceptFocusMessage {
   return (
@@ -36,5 +46,13 @@ export function isGraphNodeSelect(msg: unknown): msg is GraphNodeSelectMessage {
     typeof msg === 'object' &&
     msg !== null &&
     (msg as GraphNodeSelectMessage).command === 'GRAPH_NODE_SELECT'
+  );
+}
+
+export function isTaskContextChanged(msg: unknown): msg is TaskContextChangedMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as TaskContextChangedMessage).command === 'TASK_CONTEXT_CHANGED'
   );
 }
