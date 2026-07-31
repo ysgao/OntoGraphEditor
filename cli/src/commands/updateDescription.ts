@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface UpdateDescriptionArgs {
   id: string;
@@ -34,6 +35,7 @@ export async function runUpdateDescription(args: UpdateDescriptionArgs): Promise
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Updated description ${args.descriptionId} on concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

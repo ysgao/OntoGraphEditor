@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface SetCaseSignificanceArgs {
   id: string;
@@ -28,6 +29,7 @@ export async function runSetCaseSignificance(args: SetCaseSignificanceArgs): Pro
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Set case significance of description ${args.descriptionId} to ${args.caseSignificance}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

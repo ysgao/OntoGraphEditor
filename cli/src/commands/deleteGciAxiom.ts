@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface DeleteGciAxiomArgs {
   id: string;
@@ -10,6 +11,7 @@ export interface DeleteGciAxiomArgs {
 
 interface DeleteGciAxiomResponse {
   error?: string;
+  validationResults?: unknown;
   [key: string]: unknown;
 }
 
@@ -25,6 +27,7 @@ export async function runDeleteGciAxiom(args: DeleteGciAxiomArgs): Promise<void>
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Deleted GCI axiom ${args.axiomId} from concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

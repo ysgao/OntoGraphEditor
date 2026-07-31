@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface AddDescriptionArgs {
   id: string;
@@ -7,6 +8,7 @@ export interface AddDescriptionArgs {
   type: string;
   tag?: string;
   module?: string;
+  acceptability?: string;
   project?: string;
   task?: string;
 }
@@ -26,12 +28,14 @@ export async function runAddDescription(args: AddDescriptionArgs): Promise<void>
     type: args.type,
     semanticTag: args.tag,
     moduleId: args.module,
+    acceptability: args.acceptability,
     projectKey: args.project,
     taskKey: args.task,
   });
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Added ${args.type} description to concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

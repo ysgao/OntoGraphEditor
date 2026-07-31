@@ -21,6 +21,12 @@ export function authoringServicesEndpoint(): string {
   return cfg.get<string>('authoringServicesEndpoint', DEFAULT_AUTHORING_SERVICES_ENDPOINT).replace(/\/$/, '');
 }
 
+/** Sibling microservice of authoring-services (same host, see authoringPanel.ts's
+ * SIBLING_ENDPOINTS) — mirrors terminologyServerService.js's traceabilityEndpoint. */
+export function traceabilityServiceEndpoint(): string {
+  return `${new URL(authoringServicesEndpoint()).origin}/authoring-traceability-service`;
+}
+
 export async function getCookie(ctx: ActionContext): Promise<string> {
   return (await ctx.vscodeContext.secrets.get('imsSessionCookie')) ?? '';
 }

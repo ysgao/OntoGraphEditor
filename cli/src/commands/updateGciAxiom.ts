@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface UpdateGciAxiomArgs {
   id: string;
@@ -37,6 +38,7 @@ export async function runUpdateGciAxiom(args: UpdateGciAxiomArgs): Promise<void>
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Updated GCI axiom ${args.axiomId} on concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

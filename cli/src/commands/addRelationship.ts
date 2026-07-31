@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface AddRelationshipArgs {
   id: string;
@@ -32,6 +33,7 @@ export async function runAddRelationship(args: AddRelationshipArgs): Promise<voi
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Added relationship ${args.type} -> ${args.target} to concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

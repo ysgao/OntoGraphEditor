@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface CreateConceptArgs {
   fsn: string;
@@ -33,6 +34,7 @@ export async function runCreateConcept(args: CreateConceptArgs): Promise<void> {
 
   if (result.statusCode >= 200 && result.statusCode < 300 && result.body.conceptId) {
     console.log(`Created concept ${result.body.conceptId}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

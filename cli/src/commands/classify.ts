@@ -8,12 +8,19 @@ export interface ClassifyArgs {
   task?: string;
 }
 
+interface ClassifySaveResult {
+  accepted: boolean;
+  status?: string;
+  error?: string;
+}
+
 interface ClassifyResponse {
   jobId?: string;
   status?: string;
   finalStatus?: string;
   timedOut?: boolean;
   details?: unknown;
+  save?: ClassifySaveResult;
   error?: string;
   [key: string]: unknown;
 }
@@ -33,6 +40,14 @@ export async function runClassify(args: ClassifyArgs): Promise<void> {
       console.log(`Classification ${result.body.finalStatus}${result.body.timedOut ? ' (gave up waiting before this was confirmed terminal)' : ''}`);
       if (result.body.details) {
         console.log(JSON.stringify(result.body.details, null, 2));
+      }
+      if (result.body.save) {
+        if (result.body.save.accepted) {
+          console.log('Classification results accepted and saved.');
+        } else {
+          console.error(`Classification results NOT saved${result.body.save.error ? `: ${result.body.save.error}` : ''}${result.body.save.status ? ` (status: ${result.body.save.status})` : ''}`);
+          process.exitCode = 1;
+        }
       }
     } else {
       console.log(`Classification started: job ${result.body.jobId} (${result.body.status})`);

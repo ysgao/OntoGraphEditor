@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface DeleteDescriptionArgs {
   id: string;
@@ -10,6 +11,7 @@ export interface DeleteDescriptionArgs {
 
 interface DeleteDescriptionResponse {
   error?: string;
+  validationResults?: unknown;
   [key: string]: unknown;
 }
 
@@ -25,6 +27,7 @@ export async function runDeleteDescription(args: DeleteDescriptionArgs): Promise
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Deleted description ${args.descriptionId} from concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

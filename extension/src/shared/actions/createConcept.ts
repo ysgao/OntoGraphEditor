@@ -2,9 +2,10 @@ import * as crypto from 'crypto';
 import { requestJson } from '../httpJson';
 import type { ActionContext, ActionResult, TaskContextInput } from './types';
 import { resolveTaskContext, resolveDefaultModuleId, deriveBranchRoot, terminologyServerEndpoint, getCookie } from './taskContext';
+import { broadcastValidationResults } from './validationBroadcast';
 
-const EN_US_REFSET = '900000000000509007';
-const EN_GB_REFSET = '900000000000508004';
+export const EN_US_REFSET = '900000000000509007';
+export const EN_GB_REFSET = '900000000000508004';
 const ISA_TYPE_ID = '116680003';
 
 export interface CreateConceptBody extends TaskContextInput {
@@ -15,7 +16,12 @@ export interface CreateConceptBody extends TaskContextInput {
   moduleId?: string;
 }
 
-export function makeDescription(type: 'FSN' | 'SYNONYM', term: string, moduleId: string) {
+export function makeDescription(
+  type: 'FSN' | 'SYNONYM',
+  term: string,
+  moduleId: string,
+  acceptability: 'PREFERRED' | 'ACCEPTABLE' = 'PREFERRED'
+) {
   return {
     active: true,
     moduleId,
@@ -23,7 +29,7 @@ export function makeDescription(type: 'FSN' | 'SYNONYM', term: string, moduleId:
     term,
     lang: 'en',
     caseSignificance: 'CASE_INSENSITIVE',
-    acceptabilityMap: { [EN_US_REFSET]: 'PREFERRED', [EN_GB_REFSET]: 'PREFERRED' },
+    acceptabilityMap: { [EN_US_REFSET]: acceptability, [EN_GB_REFSET]: acceptability },
   };
 }
 
@@ -71,7 +77,7 @@ export async function createConcept(ctx: ActionContext, input: CreateConceptBody
     ],
   };
 
-  const url = `${terminologyServerEndpoint()}/browser/${branchRoot}/${projectKey}/${taskKey}/concepts/`;
+  const url = `${terminologyServerEndpoint()}/browser/${branchRoot}/${projectKey}/${taskKey}/concepts/?validate=true`;
   const result = await requestJson(url, { method: 'POST', body: payload, cookie });
 
   if (result.sessionExpired) {
@@ -80,15 +86,17 @@ export async function createConcept(ctx: ActionContext, input: CreateConceptBody
     return { statusCode: 401, body: { error: msg } };
   }
 
-  const created =
-    result.body && typeof result.body === 'object' && 'conceptId' in (result.body as Record<string, unknown>)
-      ? (result.body as Record<string, unknown>).conceptId
-      : undefined;
+  const resultBody = result.body as Record<string, unknown> | null;
+  const created = resultBody && 'conceptId' in resultBody ? resultBody.conceptId : undefined;
   ctx.outputChannel.appendLine(
     `[${new Date().toISOString()}] create-concept ${projectKey}/${taskKey}: ` +
       `${result.statusCode < 300 ? 'OK' : 'FAILED (' + result.statusCode + ')'} — ${fsnTerm}` +
       (created ? ` → ${created}` : '')
   );
+
+  if (typeof created === 'string') {
+    broadcastValidationResults(created, resultBody?.validationResults);
+  }
 
   return { statusCode: result.statusCode, body: result.body };
 }

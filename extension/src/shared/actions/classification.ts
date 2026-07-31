@@ -89,8 +89,10 @@ export async function classify(ctx: ActionContext, input: ClassifyInput): Promis
     `[${new Date().toISOString()}] classify ${projectKey}/${taskKey}: started (${startResult.body.status ?? 'unknown'})`
   );
 
+  const jobId = startResult.body.id;
+
   if (!input.wait) {
-    return { statusCode: 200, body: { jobId: startResult.body.id, status: startResult.body.status } };
+    return { statusCode: 200, body: { jobId, status: startResult.body.status } };
   }
 
   const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
@@ -112,19 +114,80 @@ export async function classify(ctx: ActionContext, input: ClassifyInput): Promis
     maxAttempts
   );
 
+  // Must use the task's own full branchPath here (matches terminologyServerService.js's
+  // getClassifications(branchPath)), not deriveBranchRoot's stripped-down project/codesystem
+  // root — that variant (getClassificationsForBranchRoot) lists every classification ever run
+  // anywhere on that root, so it was silently returning an unrelated, possibly months-old job.
   let details: unknown;
-  const branchRoot = deriveBranchRoot(branchPath);
-  const classificationsUrl = `${terminologyServerEndpoint()}/${branchRoot}/classifications`;
-  const classificationsResult = await requestJson<{ items?: unknown[] }>(classificationsUrl, { cookie });
+  const classificationsUrl = `${terminologyServerEndpoint()}/${branchPath}/classifications`;
+  const classificationsResult = await requestJson<{ items?: Array<{ id?: string }> }>(classificationsUrl, { cookie });
   if (classificationsResult.body?.items?.length) {
-    details = classificationsResult.body.items[classificationsResult.body.items.length - 1];
+    details = classificationsResult.body.items.find((item) => item.id === jobId) ?? classificationsResult.body.items[classificationsResult.body.items.length - 1];
+  }
+
+  // The CLI is headless — there's no human to click "Accept Classification Results" in the
+  // Authoring Workbench, so a completed job auto-saves here (mirrors classification.js's
+  // scope.saveClassification(), the handler behind that button).
+  let save: { accepted: boolean; status?: string; error?: string } = { accepted: false };
+  if (!timedOut && finalStatus === 'COMPLETED') {
+    save = await acceptClassification(cookie, branchPath, projectKey, taskKey, jobId);
   }
 
   ctx.outputChannel.appendLine(
-    `[${new Date().toISOString()}] classify ${projectKey}/${taskKey}: final status ${finalStatus ?? 'unknown'}${timedOut ? ' (timed out waiting)' : ''}`
+    `[${new Date().toISOString()}] classify ${projectKey}/${taskKey}: final status ${finalStatus ?? 'unknown'}${timedOut ? ' (timed out waiting)' : ''}, save ${JSON.stringify(save)}`
   );
 
-  return { statusCode: 200, body: { jobId: startResult.body.id, finalStatus, timedOut, details } };
+  return { statusCode: 200, body: { jobId, finalStatus, timedOut, details, save } };
+}
+
+const SAVE_TERMINAL_STATUSES = ['SAVED', 'STALE', 'SAVE_FAILED'];
+const SAVE_TIMEOUT_SECONDS = 120;
+
+/** Mirrors classification.js's scope.saveClassification()/startSavingClassificationPolling():
+ * PUT {status:"SAVED"} to the job, then poll the task-scoped classification resource (same one
+ * getClassificationForTask reads) until it lands on SAVED/STALE/SAVE_FAILED. */
+async function acceptClassification(
+  cookie: string,
+  branchPath: string,
+  projectKey: string,
+  taskKey: string,
+  jobId: string
+): Promise<{ accepted: boolean; status?: string; error?: string }> {
+  const saveUrl = `${terminologyServerEndpoint()}/${branchPath}/classifications/${jobId}`;
+  const saveStart = await requestJson(saveUrl, { method: 'PUT', body: { status: 'SAVED' }, cookie });
+
+  if (saveStart.statusCode === 400) {
+    return { accepted: false, error: 'Report stale — re-classify and save.' };
+  }
+  if (saveStart.statusCode < 200 || saveStart.statusCode >= 300) {
+    return { accepted: false, error: `Failed to save classification (HTTP ${saveStart.statusCode}).` };
+  }
+
+  const branchRoot = deriveBranchRoot(branchPath);
+  const statusUrl = `${terminologyServerEndpoint()}/browser/${branchRoot}/${projectKey}/${taskKey}/classifications/${jobId}`;
+  const maxAttempts = Math.ceil((SAVE_TIMEOUT_SECONDS * 1000) / POLL_INTERVAL_MS);
+
+  const { value: status, timedOut } = await pollUntil(
+    async () => {
+      const result = await requestJson<{ status?: string }>(statusUrl, { cookie });
+      const status = result.body?.status;
+      return { done: !!status && SAVE_TERMINAL_STATUSES.includes(status), value: status };
+    },
+    POLL_INTERVAL_MS,
+    maxAttempts
+  );
+
+  if (timedOut) {
+    return { accepted: false, status, error: 'Timed out waiting for classification results to save.' };
+  }
+  if (status === 'SAVED') {
+    return { accepted: true, status };
+  }
+  return {
+    accepted: false,
+    status,
+    error: status === 'STALE' ? 'Report stale — re-classify and save.' : 'Saving classification failed.',
+  };
 }
 
 export interface ValidateInput extends TaskContextInput {

@@ -2,10 +2,14 @@
 import { runCreateConcept } from './commands/createConcept';
 import { runSearchConcepts } from './commands/searchConcepts';
 import { runGetConcept } from './commands/getConcept';
+import { runCurrentTask } from './commands/currentTask';
+import { runValidateConcept } from './commands/validateConcept';
+import { runReviewConcepts } from './commands/reviewConcepts';
 import { runAddDescription } from './commands/addDescription';
 import { runAddRelationship } from './commands/addRelationship';
 import { runUpdateDescription } from './commands/updateDescription';
 import { runSetCaseSignificance } from './commands/setCaseSignificance';
+import { runSetAcceptability } from './commands/setAcceptability';
 import { runInactivateConcept } from './commands/inactivateConcept';
 import { runSetDefinitionStatus } from './commands/setDefinitionStatus';
 import { runUpdateAxiom } from './commands/updateAxiom';
@@ -76,10 +80,33 @@ const COMMANDS: Command[] = [
     run: (flags) => runGetConcept({ id: flags.id, project: flags.project, task: flags.task }),
   },
   {
+    name: 'current-task',
+    usage:
+      'current-task [--project <projectKey> --task <taskKey>] ' +
+      '(prints the task currently open in OntoGraph Editor; with --project/--task, confirms whether they match — ' +
+      'use this to verify the CLI and the UI are pointed at the same task)',
+    run: (flags) => runCurrentTask({ project: flags.project, task: flags.task }),
+  },
+  {
+    name: 'validate-concept',
+    usage:
+      'validate-concept --id <SCTID> [--project <projectKey> --task <taskKey>] ' +
+      '(read-only check of the concept\'s current saved state — same convention rules the interactive editor runs on save, without saving anything)',
+    required: ['id'],
+    run: (flags) => runValidateConcept({ id: flags.id, project: flags.project, task: flags.task }),
+  },
+  {
+    name: 'review-concepts',
+    usage:
+      'review-concepts [--project <projectKey> --task <taskKey>] ' +
+      '(lists concepts with pending stated changes and concepts affected only by classification, derived from the task branch\'s traceability log, same as the Authoring Workbench\'s "Concepts for Review" tab)',
+    run: (flags) => runReviewConcepts({ project: flags.project, task: flags.task }),
+  },
+  {
     name: 'add-description',
     usage:
       'add-description --id <SCTID> --term "<text>" --type FSN|SYNONYM [--tag <semanticTag>] ' +
-      '[--module <id>] [--project <projectKey> --task <taskKey>]',
+      '[--module <id>] [--acceptability PREFERRED|ACCEPTABLE] [--project <projectKey> --task <taskKey>]',
     required: ['id', 'term', 'type'],
     run: (flags) =>
       runAddDescription({
@@ -88,6 +115,7 @@ const COMMANDS: Command[] = [
         type: flags.type,
         tag: flags.tag,
         module: flags.module,
+        acceptability: flags.acceptability,
         project: flags.project,
         task: flags.task,
       }),
@@ -120,6 +148,24 @@ const COMMANDS: Command[] = [
         id: flags.id,
         descriptionId: flags['description-id'],
         caseSignificance: flags['case-significance'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'set-acceptability',
+    usage:
+      'set-acceptability --id <SCTID> --description-id <descriptionId> [--lang <code, e.g. en>] ' +
+      '[--us PREFERRED|ACCEPTABLE|NOT_ACCEPTABLE] [--gb PREFERRED|ACCEPTABLE|NOT_ACCEPTABLE] ' +
+      '[--project <projectKey> --task <taskKey>] (at least one of --lang, --us, --gb required)',
+    required: ['id', 'description-id'],
+    run: (flags) =>
+      runSetAcceptability({
+        id: flags.id,
+        descriptionId: flags['description-id'],
+        lang: flags.lang,
+        us: flags.us,
+        gb: flags.gb,
         project: flags.project,
         task: flags.task,
       }),

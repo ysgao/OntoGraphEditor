@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface SetDefinitionStatusArgs {
   id: string;
@@ -28,6 +29,7 @@ export async function runSetDefinitionStatus(args: SetDefinitionStatusArgs): Pro
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Set definition status of concept ${args.id} to ${args.status}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

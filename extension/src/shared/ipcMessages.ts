@@ -31,7 +31,26 @@ export interface TaskContextChangedMessage {
   } | null;
 }
 
-export type IpcMessage = ConceptFocusMessage | GraphNodeSelectMessage | TaskContextChangedMessage;
+export interface ValidationResultItem {
+  componentId?: string;
+  conceptId?: string;
+  severity?: string;
+  message?: string;
+}
+
+/** Host-initiated only — pushed after a headless authoring-cli write so a human watching the
+ * same task in the open Authoring panel sees the same save-time validation messages
+ * (case significance conflicts, duplicate descriptions, redundant relationships, etc.) that the
+ * interactive editor would have shown after a manual save with validate=true. */
+export interface ValidationResultsMessage {
+  command: 'VALIDATION_RESULTS';
+  payload: {
+    conceptId: string;
+    validationResults: ValidationResultItem[];
+  };
+}
+
+export type IpcMessage = ConceptFocusMessage | GraphNodeSelectMessage | TaskContextChangedMessage | ValidationResultsMessage;
 
 export function isConceptFocus(msg: unknown): msg is ConceptFocusMessage {
   return (

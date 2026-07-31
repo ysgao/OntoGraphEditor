@@ -13,6 +13,7 @@ import {
   setDefinitionStatus,
   updateDescription,
   setCaseSignificance,
+  setAcceptability,
   deleteDescription,
   updateAxiom,
   deleteAxiom,
@@ -20,6 +21,8 @@ import {
   deleteGciAxiom,
 } from './actions/updateConcept';
 import { deleteConcept } from './actions/deleteConcept';
+import { validateConcept } from './actions/validateConcept';
+import { reviewConcepts } from './actions/reviewConcepts';
 import { classify, validate } from './actions/classification';
 
 /**
@@ -117,6 +120,29 @@ export class ControlServer {
         return;
       }
 
+      const validationMatch = path.match(/^\/concepts\/([^/]+)\/validation$/);
+      if (method === 'GET' && validationMatch) {
+        const conceptId = decodeURIComponent(validationMatch[1]);
+        const result = await validateConcept(this.actionContext, {
+          conceptId,
+          projectKey: url.searchParams.get('projectKey') ?? undefined,
+          taskKey: url.searchParams.get('taskKey') ?? undefined,
+          branchPath: url.searchParams.get('branchPath') ?? undefined,
+        });
+        this.sendJson(res, result.statusCode, result.body);
+        return;
+      }
+
+      if (method === 'GET' && path === '/tasks/review-concepts') {
+        const result = await reviewConcepts(this.actionContext, {
+          projectKey: url.searchParams.get('projectKey') ?? undefined,
+          taskKey: url.searchParams.get('taskKey') ?? undefined,
+          branchPath: url.searchParams.get('branchPath') ?? undefined,
+        });
+        this.sendJson(res, result.statusCode, result.body);
+        return;
+      }
+
       const descriptionsMatch = path.match(/^\/concepts\/([^/]+)\/descriptions$/);
       if (method === 'POST' && descriptionsMatch) {
         const conceptId = decodeURIComponent(descriptionsMatch[1]);
@@ -164,6 +190,14 @@ export class ControlServer {
         const conceptId = decodeURIComponent(caseSignificanceMatch[1]);
         const descriptionId = decodeURIComponent(caseSignificanceMatch[2]);
         await this.dispatch(req, res, (body) => setCaseSignificance(this.actionContext, { ...body, conceptId, descriptionId }));
+        return;
+      }
+
+      const acceptabilityMatch = path.match(/^\/concepts\/([^/]+)\/descriptions\/([^/]+)\/acceptability$/);
+      if (method === 'POST' && acceptabilityMatch) {
+        const conceptId = decodeURIComponent(acceptabilityMatch[1]);
+        const descriptionId = decodeURIComponent(acceptabilityMatch[2]);
+        await this.dispatch(req, res, (body) => setAcceptability(this.actionContext, { ...body, conceptId, descriptionId }));
         return;
       }
       if (method === 'DELETE' && descriptionByIdMatch) {

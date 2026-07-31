@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface InactivateConceptArgs {
   id: string;
@@ -30,6 +31,7 @@ export async function runInactivateConcept(args: InactivateConceptArgs): Promise
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Inactivated concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 

@@ -8,7 +8,8 @@ import {
   getCookie,
   TaskContextResult,
 } from './taskContext';
-import { makeDescription } from './createConcept';
+import { makeDescription, EN_US_REFSET, EN_GB_REFSET } from './createConcept';
+import { broadcastValidationResults } from './validationBroadcast';
 
 /**
  * Mirrors terminologyServerService.js's cleanConcept()/cleanDescription()/cleanRelationship()/
@@ -123,7 +124,7 @@ function cleanAxiom(axiom: unknown): unknown {
   return cleaned;
 }
 
-function cleanConceptForUpdate(concept: Record<string, unknown>): Record<string, unknown> {
+export function cleanConceptForUpdate(concept: Record<string, unknown>): Record<string, unknown> {
   const cleaned = pick(concept, ALLOWED_CONCEPT_FIELDS);
   if (Array.isArray(cleaned.descriptions)) {
     cleaned.descriptions = cleaned.descriptions.map(cleanDescription);
@@ -169,7 +170,7 @@ async function fetchAndUpdateConcept(
   }
 
   const branchRoot = deriveBranchRoot(taskContext.branchPath);
-  const putUrl = `${tsEndpoint}/browser/${branchRoot}/${taskContext.projectKey}/${taskContext.taskKey}/concepts/${conceptId}`;
+  const putUrl = `${tsEndpoint}/browser/${branchRoot}/${taskContext.projectKey}/${taskContext.taskKey}/concepts/${conceptId}?validate=true`;
   const putResult = await requestJson(putUrl, { method: 'PUT', body: cleanConceptForUpdate(concept), cookie });
 
   if (putResult.sessionExpired) {
@@ -181,6 +182,9 @@ async function fetchAndUpdateConcept(
       `${putResult.statusCode < 300 ? 'OK' : 'FAILED (' + putResult.statusCode + ')'} — ${conceptId}`
   );
 
+  const putBody = putResult.body as Record<string, unknown> | null;
+  broadcastValidationResults(conceptId, putBody?.validationResults);
+
   return { statusCode: putResult.statusCode, body: putResult.body };
 }
 
@@ -190,7 +194,10 @@ export interface AddDescriptionInput extends TaskContextInput {
   type: 'FSN' | 'SYNONYM';
   semanticTag?: string;
   moduleId?: string;
+  acceptability?: 'PREFERRED' | 'ACCEPTABLE';
 }
+
+const ACCEPTABILITY_VALUES = ['PREFERRED', 'ACCEPTABLE'] as const;
 
 export async function addDescription(ctx: ActionContext, input: AddDescriptionInput): Promise<ActionResult> {
   if (!input.conceptId || !input.term || !input.type) {
@@ -198,6 +205,9 @@ export async function addDescription(ctx: ActionContext, input: AddDescriptionIn
   }
   if (input.type !== 'FSN' && input.type !== 'SYNONYM') {
     return { statusCode: 400, body: { error: 'type must be FSN or SYNONYM.' } };
+  }
+  if (input.acceptability && !ACCEPTABILITY_VALUES.includes(input.acceptability)) {
+    return { statusCode: 400, body: { error: `acceptability must be one of: ${ACCEPTABILITY_VALUES.join(', ')}.` } };
   }
 
   const taskContext = await resolveTaskContext(ctx, input);
@@ -210,7 +220,7 @@ export async function addDescription(ctx: ActionContext, input: AddDescriptionIn
 
   return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
     const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as unknown[]) : [];
-    descriptions.push(makeDescription(input.type, term, moduleId));
+    descriptions.push(makeDescription(input.type, term, moduleId, input.acceptability ?? 'PREFERRED'));
     concept.descriptions = descriptions;
     return null;
   });
@@ -406,6 +416,75 @@ export async function setCaseSignificance(ctx: ActionContext, input: SetCaseSign
       return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no description ${input.descriptionId}.` } };
     }
     description.caseSignificance = input.caseSignificance;
+    return null;
+  });
+}
+
+const DIALECT_ACCEPTABILITY_VALUES = ['PREFERRED', 'ACCEPTABLE', 'NOT_ACCEPTABLE'] as const;
+type DialectAcceptabilityValue = (typeof DIALECT_ACCEPTABILITY_VALUES)[number];
+
+function isDialectAcceptabilityValue(value: string): value is DialectAcceptabilityValue {
+  return (DIALECT_ACCEPTABILITY_VALUES as readonly string[]).includes(value);
+}
+
+export interface SetAcceptabilityInput extends TaskContextInput {
+  conceptId: string;
+  descriptionId: string;
+  lang?: string;
+  us?: string;
+  gb?: string;
+}
+
+/** Sets a description's `lang` and/or its per-dialect acceptability in the en-US and en-GB
+ * language refsets independently — unlike add-description's single acceptability value applied
+ * to both dialects at creation time, this lets an existing description be e.g. Preferred in
+ * en-GB but merely Acceptable (or absent, via NOT_ACCEPTABLE) in en-US. No effectiveTime/released
+ * guard, matching setCaseSignificance: acceptability is a language refset membership, editable
+ * even on an already-versioned description. */
+export async function setAcceptability(ctx: ActionContext, input: SetAcceptabilityInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.descriptionId) {
+    return { statusCode: 400, body: { error: 'conceptId and descriptionId are required.' } };
+  }
+  if (!input.lang && !input.us && !input.gb) {
+    return { statusCode: 400, body: { error: 'At least one of lang, us, or gb must be provided.' } };
+  }
+  if (input.us && !isDialectAcceptabilityValue(input.us)) {
+    return { statusCode: 400, body: { error: `us must be one of: ${DIALECT_ACCEPTABILITY_VALUES.join(', ')}.` } };
+  }
+  if (input.gb && !isDialectAcceptabilityValue(input.gb)) {
+    return { statusCode: 400, body: { error: `gb must be one of: ${DIALECT_ACCEPTABILITY_VALUES.join(', ')}.` } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as Record<string, unknown>[]) : [];
+    const description = descriptions.find((d) => d.descriptionId === input.descriptionId);
+    if (!description) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no description ${input.descriptionId}.` } };
+    }
+    if (input.lang) {
+      description.lang = input.lang;
+    }
+    const acceptabilityMap = { ...((description.acceptabilityMap as Record<string, string>) ?? {}) };
+    if (input.us) {
+      if (input.us === 'NOT_ACCEPTABLE') {
+        delete acceptabilityMap[EN_US_REFSET];
+      } else {
+        acceptabilityMap[EN_US_REFSET] = input.us;
+      }
+    }
+    if (input.gb) {
+      if (input.gb === 'NOT_ACCEPTABLE') {
+        delete acceptabilityMap[EN_GB_REFSET];
+      } else {
+        acceptabilityMap[EN_GB_REFSET] = input.gb;
+      }
+    }
+    description.acceptabilityMap = acceptabilityMap;
     return null;
   });
 }

@@ -1,5 +1,6 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
+import { printValidationResults } from '../validationOutput';
 
 export interface UpdateAxiomArgs {
   id: string;
@@ -37,6 +38,7 @@ export async function runUpdateAxiom(args: UpdateAxiomArgs): Promise<void> {
 
   if (result.statusCode >= 200 && result.statusCode < 300) {
     console.log(`Updated axiom ${args.axiomId} on concept ${args.id}`);
+    printValidationResults(result.body.validationResults);
     return;
   }
 
