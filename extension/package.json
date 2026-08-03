@@ -577,7 +577,9 @@
     "watch": "tsc -watch -p ./",
     "build": "node esbuild.mjs",
     "package": "node esbuild.mjs --minify",
-    "package:vsix": "vsce package --out dist/ --readme-path ../README.md"
+    "package:vsix": "vsce package --out dist/ --readme-path ../README.md",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.2",
@@ -597,6 +599,7 @@
     "n3": "^1.17.2",
     "sparqljs": "^3.7.4",
     "typescript": "^5.0.0",
+    "vitest": "^1.6.0",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11"

@@ -17,7 +17,7 @@ export interface SessionFile {
   updatedAt: string;
 }
 
-const SESSION_PATH = path.join(os.homedir(), '.ontograph', 'session.json');
+const SESSION_PATH = path.join(os.homedir(), '.ontograph-editor', 'session.json');
 
 /**
  * Reads the discovery file the running OntoGraph Editor extension writes on activation and

@@ -15,7 +15,7 @@ interface SessionResponse {
 
 /** Reads the extension host's live in-memory session state (extension/src/shared/sessionState.ts,
  * updated on every TASK_CONTEXT_CHANGED message from the Authoring webview) rather than the CLI's
- * local ~/.ontograph/session.json snapshot — this is the authoritative answer to "what task does
+ * local ~/.ontograph-editor/session.json snapshot — this is the authoritative answer to "what task does
  * the UI actually have open right now," useful for confirming the CLI's auto-detected task
  * context (used whenever --project/--task are omitted on other commands) matches what a human is
  * looking at in the Authoring Workbench. */

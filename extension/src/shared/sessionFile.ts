@@ -9,7 +9,7 @@ import type { TaskContext } from './sessionState';
  * to hardcode. The extension host writes the current address/token/task context here on
  * every relevant change; the CLI reads it fresh on each invocation.
  */
-const SESSION_DIR = path.join(os.homedir(), '.ontograph');
+const SESSION_DIR = path.join(os.homedir(), '.ontograph-editor');
 const SESSION_PATH = path.join(SESSION_DIR, 'session.json');
 
 export interface SessionFileContents {
