@@ -19,6 +19,7 @@ import {
   deleteAxiom,
   updateGciAxiom,
   deleteGciAxiom,
+  removeRelationship,
 } from './actions/updateConcept';
 import { deleteConcept } from './actions/deleteConcept';
 import { validateConcept } from './actions/validateConcept';
@@ -218,6 +219,14 @@ export class ControlServer {
         const conceptId = decodeURIComponent(axiomByIdMatch[1]);
         const axiomId = decodeURIComponent(axiomByIdMatch[2]);
         await this.dispatch(req, res, (body) => deleteAxiom(this.actionContext, { ...body, conceptId, axiomId }));
+        return;
+      }
+
+      const axiomRelationshipsMatch = path.match(/^\/concepts\/([^/]+)\/axioms\/([^/]+)\/relationships$/);
+      if (method === 'DELETE' && axiomRelationshipsMatch) {
+        const conceptId = decodeURIComponent(axiomRelationshipsMatch[1]);
+        const axiomId = decodeURIComponent(axiomRelationshipsMatch[2]);
+        await this.dispatch(req, res, (body) => removeRelationship(this.actionContext, { ...body, conceptId, axiomId }));
         return;
       }
 

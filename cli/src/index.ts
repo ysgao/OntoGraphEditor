@@ -7,6 +7,7 @@ import { runValidateConcept } from './commands/validateConcept';
 import { runReviewConcepts } from './commands/reviewConcepts';
 import { runAddDescription } from './commands/addDescription';
 import { runAddRelationship } from './commands/addRelationship';
+import { runRemoveRelationship } from './commands/removeRelationship';
 import { runUpdateDescription } from './commands/updateDescription';
 import { runSetCaseSignificance } from './commands/setCaseSignificance';
 import { runSetAcceptability } from './commands/setAcceptability';
@@ -183,6 +184,22 @@ const COMMANDS: Command[] = [
         target: flags.target,
         group: flags.group,
         axiomIndex: flags['axiom-index'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'remove-relationship',
+    usage:
+      'remove-relationship --id <SCTID> --axiom-id <axiomId> (--relationship-id <relationshipId> | --relationship-index N) ' +
+      '[--project <projectKey> --task <taskKey>] (only if the targeted relationship was never versioned)',
+    required: ['id', 'axiom-id'],
+    run: (flags) =>
+      runRemoveRelationship({
+        id: flags.id,
+        axiomId: flags['axiom-id'],
+        relationshipId: flags['relationship-id'],
+        relationshipIndex: flags['relationship-index'],
         project: flags.project,
         task: flags.task,
       }),

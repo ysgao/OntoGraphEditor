@@ -653,6 +653,70 @@ export async function deleteAxiom(ctx: ActionContext, input: DeleteAxiomInput): 
   });
 }
 
+export interface RemoveRelationshipInput extends TaskContextInput {
+  conceptId: string;
+  axiomId: string;
+  relationshipId?: string;
+  relationshipIndex?: number;
+}
+
+/** Mirrors conceptEdit.js's removeAxiomRelationship(): splice one relationship out of a class
+ * axiom's relationships array and PUT the whole concept back. Unlike updateAxiom/deleteAxiom,
+ * there is deliberately no axiom-level effectiveTime guard here — axiomTemplate.html's "Remove
+ * Relationship" button gates only on the individual relationship's own `released` flag, with no
+ * "rebuild as a new axiom" fallback for a released axiom; the axiom itself (same axiomId) is
+ * simply re-saved with the relationship gone. So the guard here is per-relationship: only the
+ * specific relationship being removed must never have been versioned. Addressed by
+ * relationshipId when present, falling back to relationshipIndex — newly-added, unreleased
+ * relationships (see addRelationship) are never assigned a relationshipId. */
+export async function removeRelationship(ctx: ActionContext, input: RemoveRelationshipInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.axiomId) {
+    return { statusCode: 400, body: { error: 'conceptId and axiomId are required.' } };
+  }
+  if (!input.relationshipId && input.relationshipIndex == null) {
+    return { statusCode: 400, body: { error: 'One of relationshipId or relationshipIndex is required.' } };
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const axioms = Array.isArray(concept.classAxioms) ? (concept.classAxioms as Record<string, unknown>[]) : [];
+    const axiom = axioms.find((a) => a.axiomId === input.axiomId);
+    if (!axiom) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no class axiom ${input.axiomId}.` } };
+    }
+
+    const relationships = Array.isArray(axiom.relationships) ? (axiom.relationships as Record<string, unknown>[]) : [];
+    const index = input.relationshipId ? relationships.findIndex((r) => r.relationshipId === input.relationshipId) : input.relationshipIndex!;
+    const relationship = index >= 0 ? relationships[index] : undefined;
+    if (!relationship) {
+      return {
+        statusCode: 404,
+        body: {
+          error: `Axiom ${input.axiomId} has no relationship ${input.relationshipId ?? `at index ${input.relationshipIndex}`}.`,
+        },
+      };
+    }
+    if (relationship.effectiveTime != null) {
+      return {
+        statusCode: 409,
+        body: {
+          error: `Relationship ${input.relationshipId ?? `at index ${index}`} has effectiveTime ${String(
+            relationship.effectiveTime
+          )} set (already versioned) — cannot remove.`,
+        },
+      };
+    }
+
+    relationships.splice(index, 1);
+    axiom.relationships = relationships;
+    return null;
+  });
+}
+
 export interface DeleteGciAxiomInput extends TaskContextInput {
   conceptId: string;
   axiomId: string;
