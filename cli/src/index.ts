@@ -22,7 +22,9 @@ import { runDeleteDescription } from './commands/deleteDescription';
 import { runDeleteAxiom } from './commands/deleteAxiom';
 import { runDeleteGciAxiom } from './commands/deleteGciAxiom';
 import { runClassify } from './commands/classify';
+import { runClassificationStatus } from './commands/classificationStatus';
 import { runValidateTask } from './commands/validateTask';
+import { runValidationStatus } from './commands/validationStatus';
 
 function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -314,7 +316,14 @@ const COMMANDS: Command[] = [
   },
   {
     name: 'classify',
-    usage: 'classify [--wait] [--timeout <seconds>] [--project <projectKey> --task <taskKey>]',
+    usage: 'classify [--wait] [--timeout <seconds>, default 180] [--project <projectKey> --task <taskKey>] ' +
+      '(checks the branch\'s current classification state first: attaches to and waits on an ' +
+      'already-running job, accepts an already-completed-but-unsaved one, and only starts a new ' +
+      'run when nothing is pending — never blindly starts a second job on top of one already there. ' +
+      'With --wait, polls on a tightening schedule matching the webview\'s: skips the first 90s ' +
+      '(classification normally takes ~2 minutes), then every 10s for 30s, then every 5s — same ' +
+      'schedule the extension\'s webview uses, so both feel consistent watching the same job. Pass ' +
+      'a larger --timeout for a known-large branch where ELK genuinely takes longer.)',
     run: (flags) =>
       runClassify({
         wait: 'wait' in flags,
@@ -324,14 +333,41 @@ const COMMANDS: Command[] = [
       }),
   },
   {
+    name: 'classification-status',
+    usage: 'classification-status [--project <projectKey> --task <taskKey>] ' +
+      '(read-only — reports the branch\'s current classification job and status without starting ' +
+      'or saving anything; safe to call anytime, including while classify might be running)',
+    run: (flags) =>
+      runClassificationStatus({
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
     name: 'validate-task',
-    usage: 'validate-task [--enable-mrcm] [--wait] [--timeout <seconds>] [--project <projectKey> --task <taskKey>] ' +
-      '(validates the whole task branch — distinct from validate-concept, which read-only checks a single concept)',
+    usage: 'validate-task [--enable-mrcm] [--wait] [--timeout <seconds>, default 900] [--project <projectKey> --task <taskKey>] ' +
+      '(validates the whole task branch — distinct from validate-concept, which read-only checks a single concept. ' +
+      'Checks current status first: if a validation is already RUNNING/QUEUED/SCHEDULED, attaches to and waits ' +
+      'on it instead of starting a second one on the same task (regardless of --wait). Otherwise starts fresh. ' +
+      'RVF validation routinely takes ~10 minutes or more, so any wait polls on a backed-off schedule, not a flat ' +
+      'interval: skips the first 5 minutes, then checks once a minute for 5 minutes, then every 30s for 5 more ' +
+      '(15 min total default). Use validation-status instead to check without blocking.)',
     run: (flags) =>
       runValidateTask({
         enableMrcm: 'enable-mrcm' in flags,
         wait: 'wait' in flags,
         timeout: flags.timeout,
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'validation-status',
+    usage: 'validation-status [--project <projectKey> --task <taskKey>] ' +
+      '(read-only — reports the task\'s current validation status without starting or waiting on ' +
+      'anything; use this to check on a long-running validate-task instead of blocking with --wait)',
+    run: (flags) =>
+      runValidationStatus({
         project: flags.project,
         task: flags.task,
       }),

@@ -25,7 +25,7 @@ import {
 import { deleteConcept } from './actions/deleteConcept';
 import { validateConcept } from './actions/validateConcept';
 import { reviewConcepts } from './actions/reviewConcepts';
-import { classify, validate } from './actions/classification';
+import { classify, validate, classificationStatus, validationStatus } from './actions/classification';
 
 /**
  * Local, token-authed HTTP API for the headless CLI (cli/). Unlike LocalProxy (which exists
@@ -252,8 +252,28 @@ export class ControlServer {
         return;
       }
 
+      if (method === 'GET' && path === '/tasks/classification-status') {
+        const result = await classificationStatus(this.actionContext, {
+          projectKey: url.searchParams.get('projectKey') ?? undefined,
+          taskKey: url.searchParams.get('taskKey') ?? undefined,
+          branchPath: url.searchParams.get('branchPath') ?? undefined,
+        });
+        this.sendJson(res, result.statusCode, result.body);
+        return;
+      }
+
       if (method === 'POST' && path === '/tasks/classify') {
         await this.dispatch(req, res, (body) => classify(this.actionContext, body));
+        return;
+      }
+
+      if (method === 'GET' && path === '/tasks/validation-status') {
+        const result = await validationStatus(this.actionContext, {
+          projectKey: url.searchParams.get('projectKey') ?? undefined,
+          taskKey: url.searchParams.get('taskKey') ?? undefined,
+          branchPath: url.searchParams.get('branchPath') ?? undefined,
+        });
+        this.sendJson(res, result.statusCode, result.body);
         return;
       }
 

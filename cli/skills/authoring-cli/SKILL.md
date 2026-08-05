@@ -254,22 +254,71 @@ across a large source list, see `references/batch-authoring.md`.)
 
 ## Classification
 
-`authoring-cli classify` starts an async job and returns immediately with `RUNNING` — it does not
-block. Calling `classify` again while one is already running returns HTTP 500 ("Classification
-already in progress on this branch") rather than attaching to the existing job; a full-branch ELK
-run against a real edition can genuinely take 10-20+ minutes, so check back rather than retrying in
-a loop.
+`authoring-cli classify` is self-healing, not a plain "always start a new job" call: before
+starting anything, it checks the branch's *current* classification state and reacts to what's
+actually there —
+
+- Already `RUNNING`/`BUILDING`/`SCHEDULED`/`QUEUED` → attaches to that job and waits on it, rather
+  than starting a second one (this happens regardless of whether you passed `--wait` yourself —
+  finding an unresolved job in progress means it needs resolving, not a fire-and-forget response
+  about a different, about-to-be-started job).
+- Already `COMPLETED` but not yet saved → skips starting entirely and accepts it immediately.
+- `SAVED`/`STALE`/`SAVE_FAILED`/never run → nothing pending; starts a fresh job exactly as before
+  (fire-and-forget unless you pass `--wait`).
+
+This exists because the naive version — unconditionally POSTing to start on every call — silently
+spawned a redundant second ELK run in practice: a completed-but-unsaved job does **not** block a
+new start the way a genuinely running one does, so calling `classify` again to "check on" a job
+that had already finished just started a *different* one instead, with no error to signal it.
+
+`--wait` polls on a tightening schedule rather than a flat interval — the same schedule the
+extension's own webview uses (`buildClassificationPollSchedule()` in both `classification.ts` and
+`apps/authoring-ui-vscode/app/components/edit/edit.js`, deliberately kept in sync): skip the first
+90s (classification normally finishes in ~2 minutes, so nothing checked that early is realistically
+done), then check every 10s for 30s, then every 5s. That schedule sums to exactly 3 minutes, which
+is `classify`'s new default `--timeout` too — down from a flat 600s. Once the schedule is
+exhausted, polling keeps going at its final 5s interval until your own `--timeout` budget elapses,
+so pass a larger one (e.g. `--timeout 1200`) for a known-large branch where a full-edition ELK run
+genuinely takes 10-20+ minutes; the default of 180 is sized for the common case, not a hard ceiling.
+
+For a pure status check with no side effects at all — no start, no accept, just "what's the
+current job and status" — use `authoring-cli classification-status` instead. It's safe to call
+anytime, including while you're unsure whether something is already running, and is the right tool
+when you just want to look before deciding whether to call `classify` at all.
 
 `classify --wait --timeout N` can report `Classification results NOT saved: Timed out waiting for
 classification results to save` even when the results **were** actually saved — that message is
 about the wait, not the outcome. After any `--wait` timeout, don't assume failure: `get-concept` on
 one of the affected `FULLY_DEFINED` concepts and look in `relationships[]` for an entry with
 `typeId == "116680003"` and `characteristicType == "INFERRED_RELATIONSHIP"` pointing at the concept
-you expect. If it's there, classification saved fine regardless of what the CLI printed.
+you expect. If it's there, classification saved fine regardless of what the CLI printed — or just
+run `classification-status` to check the current job's status directly.
 
 After classifying, spot-check bidirectionally: a new/changed concept's inferred descendants should
 include whatever it was meant to subsume, and those concepts should show it among their own
 inferred `Is a` parents.
+
+## Task-level validation (`validate-task`)
+
+Like `classify`, `validate-task` checks the task's current validation status before starting
+anything — two validations running concurrently against the same task is pure waste, not a way to
+get a faster result. If it finds one already `RUNNING`/`QUEUED`/`SCHEDULED`, it attaches to and
+waits on that one instead of starting a second, **regardless of whether you passed `--wait`
+yourself** — the same reasoning as `classify`'s handling of an already-running classification (see
+above): finding an unresolved run in progress means it needs resolving, not a fire-and-forget
+response about a different run you're about to start on top of it.
+
+Task validation (RVF) routinely takes ~10 minutes or more — an order of magnitude longer than
+classification's ~2 minutes — so `validate-task --wait` polls on its own, much longer backed-off
+schedule rather than classification's: skip the first 5 minutes entirely, then check once a minute
+for 5 minutes, then every 30s for 5 more (15 minutes total, also the new default `--timeout`, down
+from a flat 600s at a flat 5s interval). Pass a larger `--timeout` if you know a given branch
+routinely takes longer than that.
+
+For checking on a long validation run without blocking a whole tool call for up to 15 minutes, use
+`authoring-cli validation-status` instead — a pure read-only check (no start, no wait) that reports
+the task's current `latestValidationStatus` directly. Prefer this over `--wait` when you have other
+work to do in the meantime; call it again later rather than holding a blocking call open.
 
 ## Validating many concepts efficiently
 
