@@ -20,6 +20,12 @@ PROTECTED_PATHS=(
   "app/components/edit/edit.js"
   "app/shared/sca-service/scaService.js"
   "app/shared/taxonomy-tree/taxonomyTree.js"
+  "app/shared/task-detail/taskDetail.js"
+  "app/shared/task-detail/taskDetail.html"
+  "app/index.html"
+  "Gruntfile.js"
+  "package.json"
+  "test/karma.conf.js"
 )
 
 echo "[check-upstream-conflicts] Checking diff against ${REMOTE_BRANCH} for customization-scope files..."

@@ -263,7 +263,20 @@ cd extension && npm run compile
 
 Only pre-existing errors in test files (missing `vitest`/`n3` type declarations) are acceptable. Any new errors must be fixed before packaging.
 
-### 14. Build and package
+### 14. Run all test suites
+
+Type-checking only catches compile errors, not behavior — run every component's own test suite before packaging, not just OntoGraph-lite's:
+
+```bash
+cd apps/OntoGraph-lite && npm test          # vitest — same fixture-ENOENT exception as step 4
+cd ../../extension && npm test              # vitest
+cd ../apps/authoring-ui-vscode && npm test  # grunt `test` — see caveat below
+cd ../..
+```
+
+All three suites must pass — OntoGraph-lite's pre-existing fixture-`ENOENT` failures from step 4 are the only acceptable exception. `authoring-ui-vscode`'s Karma setup (`test/karma.conf.js`, wired into `grunt test` via `grunt-karma`) actually runs now; see `docs/maintenance/upstream-sync.md`'s "Known customizations and how to resolve conflicts in them" for what to preserve there across an `authoring-ui-vscode` upstream sync specifically (that file is a different submodule from this runbook's OntoGraph-lite, but shares the same repo-wide `npm run build-all`/`package:vsix`).
+
+### 15. Build and package
 
 ```bash
 cd ..  # repo root
