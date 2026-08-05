@@ -1,7 +1,7 @@
 import { readSession } from '../session';
 import { callControlServer } from '../client';
 
-export interface ValidateArgs {
+export interface ValidateTaskArgs {
   enableMrcm?: boolean;
   wait?: boolean;
   timeout?: string;
@@ -9,7 +9,7 @@ export interface ValidateArgs {
   task?: string;
 }
 
-interface ValidateResponse {
+interface ValidateTaskResponse {
   started?: boolean;
   finalStatus?: string;
   timedOut?: boolean;
@@ -17,10 +17,10 @@ interface ValidateResponse {
   [key: string]: unknown;
 }
 
-export async function runValidate(args: ValidateArgs): Promise<void> {
+export async function runValidateTask(args: ValidateTaskArgs): Promise<void> {
   const session = readSession();
 
-  const result = await callControlServer<ValidateResponse>(session, 'POST', '/tasks/validate', {
+  const result = await callControlServer<ValidateTaskResponse>(session, 'POST', '/tasks/validate', {
     enableMrcmValidation: args.enableMrcm,
     wait: !!args.wait,
     timeoutSeconds: args.timeout ? Number(args.timeout) : undefined,

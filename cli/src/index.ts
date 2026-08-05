@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import * as fs from 'fs';
+import * as path from 'path';
 import { runCreateConcept } from './commands/createConcept';
 import { runSearchConcepts } from './commands/searchConcepts';
 import { runGetConcept } from './commands/getConcept';
@@ -20,7 +22,7 @@ import { runDeleteDescription } from './commands/deleteDescription';
 import { runDeleteAxiom } from './commands/deleteAxiom';
 import { runDeleteGciAxiom } from './commands/deleteGciAxiom';
 import { runClassify } from './commands/classify';
-import { runValidate } from './commands/validate';
+import { runValidateTask } from './commands/validateTask';
 
 function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -158,8 +160,12 @@ const COMMANDS: Command[] = [
     usage:
       'set-acceptability --id <SCTID> --description-id <descriptionId> [--lang <code, e.g. en>] ' +
       '[--us PREFERRED|ACCEPTABLE|NOT_ACCEPTABLE] [--gb PREFERRED|ACCEPTABLE|NOT_ACCEPTABLE] ' +
-      '[--project <projectKey> --task <taskKey>] (at least one of --lang, --us, --gb required)',
-    required: ['id', 'description-id'],
+      '[--project <projectKey> --task <taskKey>] (at least one of --lang, --us, --gb required)\n' +
+      '  set-acceptability --id <SCTID> --entries \'[{"descriptionId":"...","gb":"PREFERRED"},{"descriptionId":"...","gb":"ACCEPTABLE"}]\' ' +
+      '[--project <projectKey> --task <taskKey>] (applies all entries in one save — use this to swap which description is ' +
+      "preferred in a dialect, e.g. a US/GB spelling variant pair; doing it as two separate --description-id calls fails " +
+      "either order, since Snowstorm requires exactly one preferred synonym per dialect at all times)",
+    required: ['id'],
     run: (flags) =>
       runSetAcceptability({
         id: flags.id,
@@ -167,6 +173,7 @@ const COMMANDS: Command[] = [
         lang: flags.lang,
         us: flags.us,
         gb: flags.gb,
+        entries: flags.entries,
         project: flags.project,
         task: flags.task,
       }),
@@ -317,10 +324,11 @@ const COMMANDS: Command[] = [
       }),
   },
   {
-    name: 'validate',
-    usage: 'validate [--enable-mrcm] [--wait] [--timeout <seconds>] [--project <projectKey> --task <taskKey>]',
+    name: 'validate-task',
+    usage: 'validate-task [--enable-mrcm] [--wait] [--timeout <seconds>] [--project <projectKey> --task <taskKey>] ' +
+      '(validates the whole task branch — distinct from validate-concept, which read-only checks a single concept)',
     run: (flags) =>
-      runValidate({
+      runValidateTask({
         enableMrcm: 'enable-mrcm' in flags,
         wait: 'wait' in flags,
         timeout: flags.timeout,
@@ -330,7 +338,20 @@ const COMMANDS: Command[] = [
   },
 ];
 
+/**
+ * `dist/index.js`'s own directory is one level under the package root in every deployment shape
+ * this ships in — the repo (cli/dist/index.js next to cli/skills/) and the extension-bundled copy
+ * (dist/cli/dist/index.js next to dist/cli/skills/, see extension/esbuild.mjs) both mirror that
+ * layout, so the same relative lookup resolves in both. Absent (not an error) if the skill wasn't
+ * bundled into this particular build.
+ */
+function resolveSkillPath(): string | undefined {
+  const candidate = path.join(__dirname, '..', 'skills', 'authoring-cli', 'SKILL.md');
+  return fs.existsSync(candidate) ? candidate : undefined;
+}
+
 function usageText(): string {
+  const skillPath = resolveSkillPath();
   return [
     'Usage: authoring-cli <command> [options]',
     '',
@@ -339,6 +360,9 @@ function usageText(): string {
     '',
     'With no --project/--task, actions target whatever task is',
     'currently open in the OntoGraph Editor extension.',
+    ...(skillPath
+      ? ['', `Full usage guide for AI agents (dialect/acceptability editing, worked examples): ${skillPath}`]
+      : []),
   ].join('\n');
 }
 
@@ -346,9 +370,18 @@ async function main(): Promise<void> {
   const [, , commandName, ...rest] = process.argv;
   const flags = parseFlags(rest);
 
+  if (!commandName) {
+    // Bare invocation (no args at all) is the documented way to discover the command list — see
+    // CLAUDE.md and the bundled skill — not a user error. Exiting 0 here matters for any harness
+    // (e.g. an AI agent's shell tool) that treats a non-zero exit as "the command failed": running
+    // `authoring-cli` to look up usage should never be reported as a failure.
+    console.log(usageText());
+    return;
+  }
+
   const command = COMMANDS.find((c) => c.name === commandName);
   if (!command) {
-    console.error(commandName ? `Unknown command: ${commandName}\n\n${usageText()}` : usageText());
+    console.error(`Unknown command: ${commandName}\n\n${usageText()}`);
     process.exitCode = 1;
     return;
   }

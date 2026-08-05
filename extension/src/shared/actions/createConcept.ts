@@ -1,11 +1,17 @@
 import * as crypto from 'crypto';
 import { requestJson } from '../httpJson';
 import type { ActionContext, ActionResult, TaskContextInput } from './types';
-import { resolveTaskContext, resolveDefaultModuleId, deriveBranchRoot, terminologyServerEndpoint, getCookie } from './taskContext';
+import {
+  resolveTaskContext,
+  resolveDefaultModuleId,
+  resolveDialectMetadata,
+  deriveBranchRoot,
+  terminologyServerEndpoint,
+  getCookie,
+} from './taskContext';
 import { broadcastValidationResults } from './validationBroadcast';
+import { DialectMetadata, buildAcceptabilityMap, buildFsnAcceptabilityMap } from './dialectMetadata';
 
-export const EN_US_REFSET = '900000000000509007';
-export const EN_GB_REFSET = '900000000000508004';
 const ISA_TYPE_ID = '116680003';
 
 export interface CreateConceptBody extends TaskContextInput {
@@ -16,12 +22,23 @@ export interface CreateConceptBody extends TaskContextInput {
   moduleId?: string;
 }
 
+/**
+ * Builds a new description's acceptabilityMap from the project's real dialect metadata (see
+ * dialectMetadata.ts), mirroring componentAuthoringUtil.js's getNewFsn()/getNewPt()/
+ * getNewDescription(). `initial` matches the real functions' own `initial` parameter — true for
+ * a brand-new concept's FSN+PT (getNewConcept() always passes initial=true), false for a
+ * description added to an already-existing concept.
+ */
 export function makeDescription(
   type: 'FSN' | 'SYNONYM',
   term: string,
   moduleId: string,
-  acceptability: 'PREFERRED' | 'ACCEPTABLE' = 'PREFERRED'
+  dialectMeta: DialectMetadata,
+  acceptability: 'PREFERRED' | 'ACCEPTABLE' = 'PREFERRED',
+  initial = false
 ) {
+  const acceptabilityMap =
+    type === 'FSN' ? buildFsnAcceptabilityMap(dialectMeta, initial) : buildAcceptabilityMap(dialectMeta, acceptability, initial, 'en');
   return {
     active: true,
     moduleId,
@@ -29,7 +46,7 @@ export function makeDescription(
     term,
     lang: 'en',
     caseSignificance: 'CASE_INSENSITIVE',
-    acceptabilityMap: { [EN_US_REFSET]: acceptability, [EN_GB_REFSET]: acceptability },
+    acceptabilityMap,
   };
 }
 
@@ -47,6 +64,7 @@ export async function createConcept(ctx: ActionContext, input: CreateConceptBody
   const branchRoot = deriveBranchRoot(branchPath);
   const cookie = await getCookie(ctx);
   const moduleId = input.moduleId || (await resolveDefaultModuleId(ctx, projectKey));
+  const dialectMeta = await resolveDialectMetadata(ctx, projectKey);
   const preferredTerm = input.preferredTerm || input.fsn;
   const fsnTerm = input.semanticTag ? `${input.fsn} (${input.semanticTag})` : input.fsn;
 
@@ -55,7 +73,10 @@ export async function createConcept(ctx: ActionContext, input: CreateConceptBody
     moduleId,
     definitionStatus: 'PRIMITIVE',
     active: true,
-    descriptions: [makeDescription('FSN', fsnTerm, moduleId), makeDescription('SYNONYM', preferredTerm, moduleId)],
+    descriptions: [
+      makeDescription('FSN', fsnTerm, moduleId, dialectMeta, 'PREFERRED', true),
+      makeDescription('SYNONYM', preferredTerm, moduleId, dialectMeta, 'PREFERRED', true),
+    ],
     relationships: [] as unknown[],
     classAxioms: [
       {

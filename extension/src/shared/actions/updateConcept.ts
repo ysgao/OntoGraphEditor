@@ -3,12 +3,14 @@ import type { ActionContext, ActionResult, TaskContextInput } from './types';
 import {
   resolveTaskContext,
   resolveDefaultModuleId,
+  resolveDialectMetadata,
   deriveBranchRoot,
   terminologyServerEndpoint,
   getCookie,
   TaskContextResult,
 } from './taskContext';
-import { makeDescription, EN_US_REFSET, EN_GB_REFSET } from './createConcept';
+import { makeDescription } from './createConcept';
+import { EN_US_REFSET, EN_GB_REFSET } from './dialectMetadata';
 import { broadcastValidationResults } from './validationBroadcast';
 
 /**
@@ -216,11 +218,12 @@ export async function addDescription(ctx: ActionContext, input: AddDescriptionIn
   }
 
   const moduleId = input.moduleId || (await resolveDefaultModuleId(ctx, taskContext.projectKey));
+  const dialectMeta = await resolveDialectMetadata(ctx, taskContext.projectKey);
   const term = input.type === 'FSN' && input.semanticTag ? `${input.term} (${input.semanticTag})` : input.term;
 
   return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
     const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as unknown[]) : [];
-    descriptions.push(makeDescription(input.type, term, moduleId, input.acceptability ?? 'PREFERRED'));
+    descriptions.push(makeDescription(input.type, term, moduleId, dialectMeta, input.acceptability ?? 'ACCEPTABLE', false));
     concept.descriptions = descriptions;
     return null;
   });
@@ -427,6 +430,13 @@ function isDialectAcceptabilityValue(value: string): value is DialectAcceptabili
   return (DIALECT_ACCEPTABILITY_VALUES as readonly string[]).includes(value);
 }
 
+export interface AcceptabilityEntry {
+  descriptionId: string;
+  lang?: string;
+  us?: string;
+  gb?: string;
+}
+
 export interface SetAcceptabilityInput extends TaskContextInput {
   conceptId: string;
   descriptionId: string;
@@ -435,24 +445,94 @@ export interface SetAcceptabilityInput extends TaskContextInput {
   gb?: string;
 }
 
+export interface SetAcceptabilityEntriesInput extends TaskContextInput {
+  conceptId: string;
+  entries: AcceptabilityEntry[];
+}
+
+function validateAcceptabilityEntry(entry: AcceptabilityEntry): ActionResult | null {
+  if (!entry.descriptionId) {
+    return { statusCode: 400, body: { error: 'Each entry requires a descriptionId.' } };
+  }
+  if (!entry.lang && !entry.us && !entry.gb) {
+    return { statusCode: 400, body: { error: `Entry for description ${entry.descriptionId} must set at least one of lang, us, or gb.` } };
+  }
+  if (entry.us && !isDialectAcceptabilityValue(entry.us)) {
+    return { statusCode: 400, body: { error: `us must be one of: ${DIALECT_ACCEPTABILITY_VALUES.join(', ')}.` } };
+  }
+  if (entry.gb && !isDialectAcceptabilityValue(entry.gb)) {
+    return { statusCode: 400, body: { error: `gb must be one of: ${DIALECT_ACCEPTABILITY_VALUES.join(', ')}.` } };
+  }
+  return null;
+}
+
+/** Applies one entry's lang/us/gb change to its target description in-place. Shared by
+ * setAcceptability (single entry) and setAcceptabilityEntries (multiple entries applied within
+ * the same fetch-mutate-PUT round trip) so that a swap of which description is "preferred" in a
+ * dialect — e.g. moving en-GB PREFERRED off a US-spelled synonym and onto a GB-spelled one, as
+ * required by SNOMED's edema/oedema-style spelling-variant pairs — never PUTs an intermediate
+ * state with zero or two preferred synonyms in that dialect, which Snowstorm's own per-refset
+ * "exactly one PT" business rule rejects outright (see the class comment above). */
+function applyAcceptabilityEntry(descriptions: Record<string, unknown>[], conceptId: string, entry: AcceptabilityEntry): ActionResult | null {
+  const description = descriptions.find((d) => d.descriptionId === entry.descriptionId);
+  if (!description) {
+    return { statusCode: 404, body: { error: `Concept ${conceptId} has no description ${entry.descriptionId}.` } };
+  }
+  if (entry.lang) {
+    description.lang = entry.lang;
+  }
+  const acceptabilityMap = { ...((description.acceptabilityMap as Record<string, string>) ?? {}) };
+  if (entry.us) {
+    if (entry.us === 'NOT_ACCEPTABLE') {
+      delete acceptabilityMap[EN_US_REFSET];
+    } else {
+      acceptabilityMap[EN_US_REFSET] = entry.us;
+    }
+  }
+  if (entry.gb) {
+    if (entry.gb === 'NOT_ACCEPTABLE') {
+      delete acceptabilityMap[EN_GB_REFSET];
+    } else {
+      acceptabilityMap[EN_GB_REFSET] = entry.gb;
+    }
+  }
+  if (description.active !== false && Object.keys(acceptabilityMap).length === 0) {
+    return {
+      statusCode: 400,
+      body: { error: `Description ${entry.descriptionId} would have an empty acceptabilityMap (Not Acceptable in every dialect) — an active description must be acceptable in at least one.` },
+    };
+  }
+  description.acceptabilityMap = acceptabilityMap;
+  return null;
+}
+
 /** Sets a description's `lang` and/or its per-dialect acceptability in the en-US and en-GB
  * language refsets independently — unlike add-description's single acceptability value applied
  * to both dialects at creation time, this lets an existing description be e.g. Preferred in
  * en-GB but merely Acceptable (or absent, via NOT_ACCEPTABLE) in en-US. No effectiveTime/released
  * guard, matching setCaseSignificance: acceptability is a language refset membership, editable
- * even on an already-versioned description. */
+ * even on an already-versioned description. Deliberately still hardcoded to exactly en-us/en-gb,
+ * unlike makeDescription()'s now dialect-metadata-driven defaults (see dialectMetadata.ts) — this
+ * action's `us`/`gb` params name those two specific dialects by design, the same way a human
+ * clicks a labeled "US"/"GB" button in conceptEdit.js's toggleAcceptability(); it isn't a
+ * "default acceptability" the caller left unspecified, so there's no missing dialect metadata to
+ * resolve. Calling it against a project whose extension doesn't use en-us/en-gb at all is a
+ * caller error the same way it would be in the real UI (which wouldn't even render those
+ * buttons); Snowstorm's own ?validate=true response is the backstop.
+ *
+ * Only touches one description per call/PUT — safe for a plain promote/demote, but moving which
+ * description is "preferred" within a dialect (a two-description swap) needs both changes in one
+ * PUT or Snowstorm's own "exactly one PT per language refset" rule rejects whichever ordering you
+ * pick, since the intermediate state after either half of the swap alone has zero or two preferred
+ * synonyms in that dialect. Use setAcceptabilityEntries for that case. */
 export async function setAcceptability(ctx: ActionContext, input: SetAcceptabilityInput): Promise<ActionResult> {
   if (!input.conceptId || !input.descriptionId) {
     return { statusCode: 400, body: { error: 'conceptId and descriptionId are required.' } };
   }
-  if (!input.lang && !input.us && !input.gb) {
-    return { statusCode: 400, body: { error: 'At least one of lang, us, or gb must be provided.' } };
-  }
-  if (input.us && !isDialectAcceptabilityValue(input.us)) {
-    return { statusCode: 400, body: { error: `us must be one of: ${DIALECT_ACCEPTABILITY_VALUES.join(', ')}.` } };
-  }
-  if (input.gb && !isDialectAcceptabilityValue(input.gb)) {
-    return { statusCode: 400, body: { error: `gb must be one of: ${DIALECT_ACCEPTABILITY_VALUES.join(', ')}.` } };
+  const entry: AcceptabilityEntry = { descriptionId: input.descriptionId, lang: input.lang, us: input.us, gb: input.gb };
+  const validationError = validateAcceptabilityEntry(entry);
+  if (validationError) {
+    return validationError;
   }
 
   const taskContext = await resolveTaskContext(ctx, input);
@@ -462,29 +542,40 @@ export async function setAcceptability(ctx: ActionContext, input: SetAcceptabili
 
   return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
     const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as Record<string, unknown>[]) : [];
-    const description = descriptions.find((d) => d.descriptionId === input.descriptionId);
-    if (!description) {
-      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no description ${input.descriptionId}.` } };
+    return applyAcceptabilityEntry(descriptions, input.conceptId, entry);
+  });
+}
+
+/** Same underlying mutation as setAcceptability, but applies multiple descriptions' lang/us/gb
+ * changes within a single fetch-mutate-PUT round trip — see setAcceptability's doc comment for
+ * why a dialect-preferred swap between two descriptions needs this instead of two separate calls. */
+export async function setAcceptabilityEntries(ctx: ActionContext, input: SetAcceptabilityEntriesInput): Promise<ActionResult> {
+  if (!input.conceptId) {
+    return { statusCode: 400, body: { error: 'conceptId is required.' } };
+  }
+  if (!Array.isArray(input.entries) || input.entries.length === 0) {
+    return { statusCode: 400, body: { error: 'entries must be a non-empty array.' } };
+  }
+  for (const entry of input.entries) {
+    const validationError = validateAcceptabilityEntry(entry);
+    if (validationError) {
+      return validationError;
     }
-    if (input.lang) {
-      description.lang = input.lang;
-    }
-    const acceptabilityMap = { ...((description.acceptabilityMap as Record<string, string>) ?? {}) };
-    if (input.us) {
-      if (input.us === 'NOT_ACCEPTABLE') {
-        delete acceptabilityMap[EN_US_REFSET];
-      } else {
-        acceptabilityMap[EN_US_REFSET] = input.us;
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const descriptions = Array.isArray(concept.descriptions) ? (concept.descriptions as Record<string, unknown>[]) : [];
+    for (const entry of input.entries) {
+      const entryError = applyAcceptabilityEntry(descriptions, input.conceptId, entry);
+      if (entryError) {
+        return entryError;
       }
     }
-    if (input.gb) {
-      if (input.gb === 'NOT_ACCEPTABLE') {
-        delete acceptabilityMap[EN_GB_REFSET];
-      } else {
-        acceptabilityMap[EN_GB_REFSET] = input.gb;
-      }
-    }
-    description.acceptabilityMap = acceptabilityMap;
     return null;
   });
 }

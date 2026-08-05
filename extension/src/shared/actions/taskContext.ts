@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { requestJson } from '../httpJson';
 import { getSessionState } from '../sessionState';
-import type { ActionContext, TaskContextInput } from './types';
+import type { ActionContext, ProjectMetadata, TaskContextInput } from './types';
+import { DialectMetadata, parseDialectMetadata } from './dialectMetadata';
 
 export const DEFAULT_MODULE_ID = '900000000000207008';
 export const DEFAULT_TERMINOLOGY_SERVER_ENDPOINT = 'https://uat-snowstorm.ihtsdotools.org/snowstorm/snomed-ct/';
@@ -69,10 +70,26 @@ export async function resolveBranchPath(ctx: ActionContext, projectKey: string, 
   return result.body?.branchPath ?? null;
 }
 
-interface ProjectMetadata {
-  defaultModuleId?: string;
-  expectedExtensionModules?: string[];
-  multipleModuleEditingDisabled?: boolean | string;
+/**
+ * Fetches (and caches, per projectKey) the raw `metadata` object from authoring-services'
+ * `GET /projects/{projectKey}` — the single source both resolveDefaultModuleId() and
+ * dialectMetadata.ts's resolveDialectMetadata() derive from, mirroring how the real app's
+ * project.js/edit.js pass the same `$scope.project.metadata` to both getCurrentModuleId()'s
+ * callers and metadataService.setExtensionMetadata().
+ */
+export async function fetchProjectMetadata(ctx: ActionContext, projectKey: string): Promise<ProjectMetadata> {
+  const cached = ctx.projectMetadataCache.get(projectKey);
+  if (cached) {
+    return cached;
+  }
+
+  const cookie = await getCookie(ctx);
+  const url = `${authoringServicesEndpoint()}/projects/${projectKey}`;
+  const result = await requestJson<{ metadata?: ProjectMetadata }>(url, { cookie });
+  const metadata = result.body?.metadata ?? {};
+
+  ctx.projectMetadataCache.set(projectKey, metadata);
+  return metadata;
 }
 
 /**
@@ -81,27 +98,23 @@ interface ProjectMetadata {
  * classifier/MRCM checks choke on module-mismatched content on an extension branch.
  */
 export async function resolveDefaultModuleId(ctx: ActionContext, projectKey: string): Promise<string> {
-  const cached = ctx.moduleIdCache.get(projectKey);
-  if (cached) {
-    return cached;
+  const metadata = await fetchProjectMetadata(ctx, projectKey);
+
+  const disabledRaw = metadata.multipleModuleEditingDisabled;
+  const notDisabled = !disabledRaw || disabledRaw === 'false';
+  if (metadata.expectedExtensionModules?.length && notDisabled) {
+    return metadata.expectedExtensionModules[0];
   }
-
-  const cookie = await getCookie(ctx);
-  const url = `${authoringServicesEndpoint()}/projects/${projectKey}`;
-  const result = await requestJson<{ metadata?: ProjectMetadata }>(url, { cookie });
-  const metadata = result.body?.metadata;
-
-  let moduleId = DEFAULT_MODULE_ID;
-  if (metadata) {
-    const disabledRaw = metadata.multipleModuleEditingDisabled;
-    const notDisabled = !disabledRaw || disabledRaw === 'false';
-    if (metadata.expectedExtensionModules?.length && notDisabled) {
-      moduleId = metadata.expectedExtensionModules[0];
-    } else if (metadata.defaultModuleId) {
-      moduleId = metadata.defaultModuleId;
-    }
+  if (metadata.defaultModuleId) {
+    return metadata.defaultModuleId;
   }
+  return DEFAULT_MODULE_ID;
+}
 
-  ctx.moduleIdCache.set(projectKey, moduleId);
-  return moduleId;
+/** Fetches the project's metadata (shared cache with resolveDefaultModuleId, via
+ * fetchProjectMetadata above) and parses it into dialect/acceptability defaults — see
+ * dialectMetadata.ts's parseDialectMetadata() for the parsing itself. */
+export async function resolveDialectMetadata(ctx: ActionContext, projectKey: string): Promise<DialectMetadata> {
+  const metadata = await fetchProjectMetadata(ctx, projectKey);
+  return parseDialectMetadata(metadata);
 }

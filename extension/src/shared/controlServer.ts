@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { getSessionState } from './sessionState';
-import type { ActionContext, ActionResult } from './actions/types';
+import type { ActionContext, ActionResult, ProjectMetadata } from './actions/types';
 import { createConcept } from './actions/createConcept';
 import { getConcept } from './actions/getConcept';
 import { searchConcepts } from './actions/searchConcepts';
@@ -14,6 +14,7 @@ import {
   updateDescription,
   setCaseSignificance,
   setAcceptability,
+  setAcceptabilityEntries,
   deleteDescription,
   updateAxiom,
   deleteAxiom,
@@ -42,7 +43,7 @@ export class ControlServer {
   private _port = 0;
   readonly token: string;
   private readonly outputChannel: vscode.OutputChannel;
-  private readonly moduleIdCache = new Map<string, string>();
+  private readonly projectMetadataCache = new Map<string, ProjectMetadata>();
 
   constructor(private readonly vscodeContext: vscode.ExtensionContext) {
     this.token = crypto.randomBytes(24).toString('hex');
@@ -77,7 +78,7 @@ export class ControlServer {
     return {
       vscodeContext: this.vscodeContext,
       outputChannel: this.outputChannel,
-      moduleIdCache: this.moduleIdCache,
+      projectMetadataCache: this.projectMetadataCache,
     };
   }
 
@@ -199,6 +200,13 @@ export class ControlServer {
         const conceptId = decodeURIComponent(acceptabilityMatch[1]);
         const descriptionId = decodeURIComponent(acceptabilityMatch[2]);
         await this.dispatch(req, res, (body) => setAcceptability(this.actionContext, { ...body, conceptId, descriptionId }));
+        return;
+      }
+
+      const acceptabilityEntriesMatch = path.match(/^\/concepts\/([^/]+)\/acceptability$/);
+      if (method === 'POST' && acceptabilityEntriesMatch) {
+        const conceptId = decodeURIComponent(acceptabilityEntriesMatch[1]);
+        await this.dispatch(req, res, (body) => setAcceptabilityEntries(this.actionContext, { ...body, conceptId }));
         return;
       }
       if (method === 'DELETE' && descriptionByIdMatch) {

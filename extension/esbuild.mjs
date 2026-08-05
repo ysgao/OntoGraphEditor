@@ -115,6 +115,14 @@ if (fs.existsSync(cliDist) && fs.existsSync(cliPackageJsonSrc)) {
   fs.mkdirSync(targetCliDir, { recursive: true });
   fs.cpSync(cliDist, path.join(targetCliDir, 'dist'), { recursive: true });
 
+  // cli/skills/ ships alongside dist/ so authoring-cli's own usage output (see
+  // cli/src/index.ts's resolveSkillPath()) can point AI agents at it — a portable Agent Skills
+  // folder for the CLI itself, unrelated to this repo's own dev-time .claude/skills/ (if any).
+  const cliSkills = path.resolve('../cli/skills');
+  if (fs.existsSync(cliSkills)) {
+    fs.cpSync(cliSkills, path.join(targetCliDir, 'skills'), { recursive: true });
+  }
+
   const cliPackageJson = JSON.parse(fs.readFileSync(cliPackageJsonSrc, 'utf8'));
   const trimmedPackageJson = {
     name: cliPackageJson.name,
