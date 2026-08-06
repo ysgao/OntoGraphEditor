@@ -12,6 +12,9 @@ import {
 import { makeDescription } from './createConcept';
 import { EN_US_REFSET, EN_GB_REFSET } from './dialectMetadata';
 import { broadcastValidationResults } from './validationBroadcast';
+import { RoleGroupAttribute, findRoleGroupByAttributes } from './roleGroupMatch';
+
+export type { RoleGroupAttribute } from './roleGroupMatch';
 
 /**
  * Mirrors terminologyServerService.js's cleanConcept()/cleanDescription()/cleanRelationship()/
@@ -804,6 +807,92 @@ export async function removeRelationship(ctx: ActionContext, input: RemoveRelati
 
     relationships.splice(index, 1);
     axiom.relationships = relationships;
+    return null;
+  });
+}
+
+export interface RemoveRoleGroupInput extends TaskContextInput {
+  conceptId: string;
+  axiomId: string;
+  attributes: RoleGroupAttribute[];
+  groupId?: number;
+}
+
+/** Removes every relationship sharing one role group from a class axiom, identifying the group by
+ * a caller-supplied set of type/target attribute pairs rather than its numeric groupId — groupId
+ * is an internal label Snowstorm assigns per save, not a stable identifier a caller can predict or
+ * address by (see add-relationship's documented group-compaction quirk, where requesting an
+ * absolute groupId doesn't reliably stick); attributes/values are the only thing that actually
+ * names a role group in SNOMED CT's own model.
+ *
+ * `--attributes` only needs to *identify* the group, not enumerate every relationship in it: if
+ * one attribute/value pair already occurs in only one role group of the axiom, that single pair is
+ * enough — the whole group it belongs to is removed, including any other relationships in it you
+ * didn't mention. If the given pair(s) are ambiguous (found in more than one role group), the call
+ * fails with a 409 listing every candidate groupId, asking the caller to either add another
+ * attribute pair that narrows it down to one group, or pass `groupId` to target one directly (the
+ * "decide case by case" escape hatch when two groups are genuinely indistinguishable by content
+ * alone). There is deliberately no silent "first match wins" fallback — guessing wrong here
+ * deletes the wrong role group.
+ *
+ * Deliberately has NO axiom-level effectiveTime guard, same rationale as removeRelationship: the
+ * real UI re-saves the axiom (same axiomId) with the group's relationships gone regardless of
+ * whether that axiom has ever been released. Only each matched relationship's own effectiveTime
+ * blocks removal — a partial match (some but not all of the group already versioned) fails the
+ * whole call rather than silently leaving a semantically-changed rump group behind.
+ *
+ * groupId 0 (SNOMED's "ungrouped" bucket, which typically also holds the stated Is-a) is excluded
+ * from matching unless the caller explicitly passes `groupId: 0` — a single attribute pair
+ * matching an ungrouped relationship should never accidentally sweep up every other ungrouped
+ * attribute (including Is-a) as collateral damage.
+ *
+ * Only matches relationships with a concept target: a `concreteValue` relationship (no
+ * `target.conceptId` — e.g. "Has strength value = 5 mg") is never itself usable as an
+ * `--attributes` pair, though it's still removed along with the rest of its group once that group
+ * is identified by its other, concept-valued relationships. */
+export async function removeRoleGroup(ctx: ActionContext, input: RemoveRoleGroupInput): Promise<ActionResult> {
+  if (!input.conceptId || !input.axiomId || !Array.isArray(input.attributes) || input.attributes.length === 0) {
+    return { statusCode: 400, body: { error: 'conceptId, axiomId, and a non-empty attributes array are required.' } };
+  }
+  for (const attr of input.attributes) {
+    if (!attr || typeof attr.typeId !== 'string' || typeof attr.targetId !== 'string') {
+      return { statusCode: 400, body: { error: 'Each attributes entry requires typeId and targetId.' } };
+    }
+  }
+
+  const taskContext = await resolveTaskContext(ctx, input);
+  if (!taskContext.ok) {
+    return { statusCode: 400, body: { error: taskContext.error } };
+  }
+
+  return fetchAndUpdateConcept(ctx, taskContext, input.conceptId, (concept) => {
+    const axioms = Array.isArray(concept.classAxioms) ? (concept.classAxioms as Record<string, unknown>[]) : [];
+    const axiom = axioms.find((a) => a.axiomId === input.axiomId);
+    if (!axiom) {
+      return { statusCode: 404, body: { error: `Concept ${input.conceptId} has no class axiom ${input.axiomId}.` } };
+    }
+
+    const relationships = Array.isArray(axiom.relationships) ? (axiom.relationships as Record<string, unknown>[]) : [];
+    const match = findRoleGroupByAttributes(relationships, input.attributes, input.groupId);
+    if (!match.ok) {
+      return { statusCode: match.statusCode, body: { error: `Axiom ${input.axiomId} ${match.error}` } };
+    }
+
+    const versioned = match.relationships.find((r) => r.effectiveTime != null);
+    if (versioned) {
+      return {
+        statusCode: 409,
+        body: {
+          error:
+            `Role group (groupId ${match.groupId}) on axiom ${input.axiomId} has a relationship ` +
+            `(relationshipId ${String(versioned.relationshipId)}) with effectiveTime ${String(
+              versioned.effectiveTime
+            )} set (already versioned) — cannot remove.`,
+        },
+      };
+    }
+
+    axiom.relationships = relationships.filter((r) => (typeof r.groupId === 'number' ? r.groupId : 0) !== match.groupId);
     return null;
   });
 }

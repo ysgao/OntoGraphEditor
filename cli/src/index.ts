@@ -10,6 +10,7 @@ import { runReviewConcepts } from './commands/reviewConcepts';
 import { runAddDescription } from './commands/addDescription';
 import { runAddRelationship } from './commands/addRelationship';
 import { runRemoveRelationship } from './commands/removeRelationship';
+import { runRemoveRoleGroup } from './commands/removeRoleGroup';
 import { runUpdateDescription } from './commands/updateDescription';
 import { runSetCaseSignificance } from './commands/setCaseSignificance';
 import { runSetAcceptability } from './commands/setAcceptability';
@@ -42,6 +43,10 @@ function parseFlags(argv: string[]): Record<string, string> {
 
 interface Command {
   name: string;
+  /** Alternate names that dispatch to the same command — e.g. a more familiar verb ("delete")
+   * for a command named with a different one ("remove"), so neither a human nor an AI agent
+   * guessing at the command name needs to already know which verb this CLI picked. */
+  aliases?: string[];
   usage: string;
   required?: string[];
   run: (flags: Record<string, string>) => Promise<void>;
@@ -199,6 +204,7 @@ const COMMANDS: Command[] = [
   },
   {
     name: 'remove-relationship',
+    aliases: ['delete-relationship'],
     usage:
       'remove-relationship --id <SCTID> --axiom-id <axiomId> (--relationship-id <relationshipId> | --relationship-index N) ' +
       '[--project <projectKey> --task <taskKey>] (only if the targeted relationship was never versioned)',
@@ -209,6 +215,26 @@ const COMMANDS: Command[] = [
         axiomId: flags['axiom-id'],
         relationshipId: flags['relationship-id'],
         relationshipIndex: flags['relationship-index'],
+        project: flags.project,
+        task: flags.task,
+      }),
+  },
+  {
+    name: 'remove-role-group',
+    aliases: ['delete-role-group', 'delete-rolegroup'],
+    usage:
+      'remove-role-group --id <SCTID> --axiom-id <axiomId> --attributes \'[{"typeId":"...","targetId":"..."}]\' [--group-id N] ' +
+      '[--project <projectKey> --task <taskKey>] (--attributes only needs to identify the group, not enumerate it — ' +
+      'one pair is enough if it is unique to one role group in the axiom; if it matches more than one group, the call ' +
+      'fails listing every candidate groupId so you can add another pair to disambiguate, or pass --group-id directly; ' +
+      'works on published axioms — only blocked if a matched relationship was itself individually versioned)',
+    required: ['id', 'axiom-id', 'attributes'],
+    run: (flags) =>
+      runRemoveRoleGroup({
+        id: flags.id,
+        axiomId: flags['axiom-id'],
+        attributes: flags.attributes,
+        groupId: flags['group-id'],
         project: flags.project,
         task: flags.task,
       }),
@@ -386,13 +412,23 @@ function resolveSkillPath(): string | undefined {
   return fs.existsSync(candidate) ? candidate : undefined;
 }
 
+/** Inserts "(alias: ...)" right after the command's own name token in its usage string, so the
+ * alias reads as part of the command identity rather than a trailing, easily-missed note. */
+function usageLine(c: Command): string {
+  if (!c.aliases?.length) {
+    return c.usage;
+  }
+  const note = `(alias: ${c.aliases.join(', ')})`;
+  return c.usage.startsWith(c.name) ? `${c.name} ${note}${c.usage.slice(c.name.length)}` : `${c.usage} ${note}`;
+}
+
 function usageText(): string {
   const skillPath = resolveSkillPath();
   return [
     'Usage: authoring-cli <command> [options]',
     '',
     'Commands:',
-    ...COMMANDS.map((c) => `  ${c.usage}`),
+    ...COMMANDS.map((c) => `  ${usageLine(c)}`),
     '',
     'With no --project/--task, actions target whatever task is',
     'currently open in the OntoGraph Editor extension.',
@@ -415,7 +451,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const command = COMMANDS.find((c) => c.name === commandName);
+  const command = COMMANDS.find((c) => c.name === commandName || c.aliases?.includes(commandName));
   if (!command) {
     console.error(`Unknown command: ${commandName}\n\n${usageText()}`);
     process.exitCode = 1;
@@ -424,7 +460,7 @@ async function main(): Promise<void> {
 
   const missing = (command.required ?? []).filter((key) => !flags[key]);
   if (missing.length) {
-    console.error(`Missing required flag(s): ${missing.map((k) => `--${k}`).join(', ')}\n\nUsage: ${command.usage}`);
+    console.error(`Missing required flag(s): ${missing.map((k) => `--${k}`).join(', ')}\n\nUsage: ${usageLine(command)}`);
     process.exitCode = 1;
     return;
   }

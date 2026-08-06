@@ -21,6 +21,7 @@ import {
   updateGciAxiom,
   deleteGciAxiom,
   removeRelationship,
+  removeRoleGroup,
 } from './actions/updateConcept';
 import { deleteConcept } from './actions/deleteConcept';
 import { validateConcept } from './actions/validateConcept';
@@ -235,6 +236,14 @@ export class ControlServer {
         const conceptId = decodeURIComponent(axiomRelationshipsMatch[1]);
         const axiomId = decodeURIComponent(axiomRelationshipsMatch[2]);
         await this.dispatch(req, res, (body) => removeRelationship(this.actionContext, { ...body, conceptId, axiomId }));
+        return;
+      }
+
+      const axiomRoleGroupMatch = path.match(/^\/concepts\/([^/]+)\/axioms\/([^/]+)\/role-groups$/);
+      if (method === 'DELETE' && axiomRoleGroupMatch) {
+        const conceptId = decodeURIComponent(axiomRoleGroupMatch[1]);
+        const axiomId = decodeURIComponent(axiomRoleGroupMatch[2]);
+        await this.dispatch(req, res, (body) => removeRoleGroup(this.actionContext, { ...body, conceptId, axiomId }));
         return;
       }
 

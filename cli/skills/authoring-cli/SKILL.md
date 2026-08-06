@@ -187,6 +187,90 @@ authoring-cli update-axiom --id <SCTID> --axiom-id <axiomId> --relationships \
 (Get `axiomId` from `get-concept` right after creating the concept.) Single-group concepts — the
 common case — are unaffected; plain `add-relationship` is fine and simpler there.
 
+### Removing a relationship — including from a published axiom
+
+(`remove-relationship` is also callable as `delete-relationship` — same command, whichever verb
+you reach for first.)
+
+`update-axiom` and `remove-relationship` are gated at **different levels**, and that difference is
+the whole story for editing an axiom that's already been released:
+
+- `update-axiom` checks the **axiom's own** `effectiveTime`. If the axiom has ever been versioned
+  (`released: true` with a real `effectiveTime`, not just inherited from the concept), every call
+  fails with HTTP 409 — it replaces `relationships` wholesale, so it refuses outright rather than
+  risk silently changing a released axiom's meaning.
+- `remove-relationship` checks the **targeted relationship's own** `effectiveTime` only, never the
+  axiom's. This mirrors the real Authoring Workbench: its "Remove Relationship" button re-saves the
+  same axiom (same `axiomId`) with one relationship gone, regardless of whether that axiom has been
+  released before — only the specific relationship being removed must itself never have been
+  versioned.
+
+So: **removing one relationship from a published axiom is `remove-relationship`, not
+`update-axiom`.** Get the target's `relationshipId` (or its array index within that axiom) from
+`get-concept`, then:
+
+```
+authoring-cli remove-relationship --id <SCTID> --axiom-id <axiomId> --relationship-id <relationshipId>
+```
+
+If that specific relationship has its own `effectiveTime` set (it was independently versioned —
+uncommon, but possible for a relationship inside an otherwise-unversioned axiom edit history), the
+call 409s and there's no way to remove it via the CLI; that's expected residue, same as the fully-
+versioned-axiom case in "Redundant stated Is-a relationships" below.
+
+### Removing an entire role group
+
+(`remove-role-group` is also callable as `delete-role-group` or `delete-rolegroup`.)
+
+Use `remove-role-group`, not a manual loop of `remove-relationship` calls. It identifies the target
+group **by content, not by `groupId`** — pass `{typeId, targetId}` attribute pairs that identify
+the group, not necessarily all of them:
+
+```
+authoring-cli remove-role-group --id <SCTID> --axiom-id <axiomId> --attributes \
+  '[{"typeId":"363698007","targetId":"53505006"}]'
+```
+
+**Why content instead of `groupId`:** SNOMED CT's own model has no persistent "role group ID" —
+`groupId` is just an internal number Snowstorm assigns per save to cluster relationships, and it's
+already documented above as unreliable to target directly (`add-relationship --group N` silently
+compacting groups together). The set of attribute/value pairs actually inside a group is the only
+thing that names it consistently.
+
+**`--attributes` only needs to *identify* the group, not enumerate it.** If one pair — say, Finding
+site = X — occurs in only one role group of the axiom, that single pair is enough: the whole group
+it belongs to is removed, including any other relationships in it you didn't mention (e.g. an
+Associated morphology in the same group). You don't need to look up and list every relationship in
+the group first. Get candidate pairs from `get-concept`'s `classAxioms[N].relationships[]` (each
+entry's `type.conceptId`/`target.conceptId`, grouped by `groupId` just to see what's likely unique).
+
+If the given pair(s) match **more than one** role group in the axiom, the call fails with HTTP 409
+and lists every candidate `groupId` rather than guessing which one you meant — deleting the wrong
+role group is not a recoverable mistake. From there you have two options:
+
+- Add another attribute pair from the group you actually want (e.g. also include the Associated
+  morphology pair) and retry — this re-narrows the match to one group.
+- Or, if the groups are genuinely indistinguishable by content alone, pass `--group-id N` (one of
+  the listed candidates) to target that specific one directly — the case-by-case fallback for when
+  two role groups happen to share an attribute pair but aren't actually the same group.
+
+Same axiom-publication rule as `remove-relationship`: **no axiom-level `effectiveTime` gate at
+all** — a published axiom's group can be removed just like an unpublished one. The only gate is
+per-relationship: if any relationship inside the matched group has its own `effectiveTime` set
+(independently versioned), the whole call 409s and nothing is removed — deliberately no partial
+removal, since a role group's members jointly describe one nexus and dropping only some of them
+would change what the axiom asserts rather than just shrinking it.
+
+Two more edges worth knowing: `groupId 0` (SNOMED's ungrouped bucket, which usually also holds the
+stated `Is a`) is excluded from matching unless you explicitly pass `--group-id 0` — otherwise a
+pair that happens to match an ungrouped attribute could sweep up unrelated ungrouped relationships,
+including `Is a`, as collateral damage. And `remove-role-group` only targets `classAxioms`; a GCI
+role group still needs the `update-gci-axiom` workaround (rewrite the relationships list with that
+group's entries omitted), gated on the whole GCI axiom's own `effectiveTime` since there's no
+per-relationship GCI removal endpoint.
+
+Confirm with `authoring-cli validate-concept --id <SCTID>` afterward.
+
 ## Redundant stated Is-a relationships
 
 Adding a new stated `Is a` (`116680003`) parent to a concept that already has a broader stated
@@ -199,20 +283,20 @@ more specific one. Resolve it immediately rather than leaving it as residue:
    warning names both the redundant parent and the more-specific one making it redundant — it's
    the `groupId: 0` `Is a` relationship whose `target` is the broader, redundant parent). Note its
    array index and the axiom's `axiomId`.
-2. Check **that specific relationship's own `released` flag** — not just the axiom-level one. An
-   axiom can show `released: true` overall while an individual relationship inside it (e.g. the
-   parent you just added this session) is still `released: false`.
-   - `released: false` → `authoring-cli remove-relationship --id <id> --axiom-id <axiomId>
-     --relationship-index <N>` removes just that one relationship cleanly, in one call. Prefer
-     this — simpler than rewriting the whole axiom.
-   - Else, if the *whole axiom* has never actually been versioned (no real `effectiveTime` despite
-     `released: true`) → `authoring-cli update-axiom --id <id> --axiom-id <axiomId> --relationships
-     '[...]'`, rewriting the full list with the redundant parent dropped and everything else kept.
-   - Else (the axiom is genuinely versioned, real `effectiveTime`) → both commands fail with HTTP
-     409 ("never versioned"). Leave both stated parents in place and accept the warning — a
-     released/versioned defining axiom shouldn't be force-edited; this is expected residue for
-     CLI-only authoring, resolved by a human in the interactive editor at the next release cycle,
-     not a bug to work around.
+2. Check **that specific relationship's own `effectiveTime`/`released` flag** — not just the
+   axiom-level one; see "Removing a relationship — including from a published axiom" above for why
+   they're gated independently. An axiom can show `released: true` overall while an individual
+   relationship inside it (e.g. the parent you just added this session) is still `released: false`.
+   - That relationship's own `effectiveTime` is unset → `authoring-cli remove-relationship --id
+     <id> --axiom-id <axiomId> --relationship-index <N>` removes just that one relationship
+     cleanly, in one call, **regardless of whether the axiom itself has been released** — prefer
+     this over rewriting the whole axiom.
+   - Else (that specific relationship has itself been versioned) → also try `update-axiom` if the
+     *whole axiom* has never been versioned (rewrite the full list with the redundant parent
+     dropped); if the axiom is genuinely versioned too, both commands fail with HTTP 409. Leave both
+     stated parents in place and accept the warning — a released/versioned relationship shouldn't be
+     force-edited; this is expected residue for CLI-only authoring, resolved by a human in the
+     interactive editor at the next release cycle, not a bug to work around.
 3. Re-run `validate-concept --id <id>` to confirm the warning cleared.
 
 ## Generating a concept structurally parallel to an existing one
