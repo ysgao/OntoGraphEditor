@@ -2,6 +2,8 @@ import { requestJson } from '../httpJson';
 import type { ActionContext, ActionResult, TaskContextInput } from './types';
 import { resolveTaskContext, authoringServicesEndpoint, terminologyServerEndpoint, getCookie, deriveBranchRoot } from './taskContext';
 import { fetchTask } from './fetchTask';
+import { waitForNotification } from '../notifications/notificationBus';
+import type { NotificationMatch } from '../notifications/notificationBus';
 
 const CLASSIFICATION_RUNNING_STATUSES = ['RUNNING', 'BUILDING', 'SCHEDULED', 'QUEUED'];
 const VALIDATION_RUNNING_STATUSES = ['QUEUED', 'SCHEDULED', 'RUNNING'];
@@ -83,23 +85,34 @@ function buildValidationPollSchedule(): number[] {
 const VALIDATION_POLL_SCHEDULE = buildValidationPollSchedule();
 const VALIDATION_DEFAULT_TIMEOUT_SECONDS = 900;
 
+/**
+ * `wakeMatch`, when given, lets a real STOMP push (scaRelayManager.ts's relay, forwarded through
+ * notifications/notificationBus.ts) cut a scheduled delay short — each tick races `sleep(delay)`
+ * against the first matching notification, so a caller usually wakes almost immediately instead of
+ * waiting for the next tick. The HTTP `check()` still runs either way and stays authoritative — a
+ * notification is only a hint to look now, not a substitute for the real status fetch. Because
+ * waking early means less real time actually passed than the nominal schedule entry, elapsed time
+ * is tracked from wall-clock (Date.now()) rather than accumulated nominal delays.
+ */
 async function pollWithSchedule<T>(
   check: () => Promise<{ done: boolean; value: T }>,
   schedule: number[],
-  timeoutSeconds: number
+  timeoutSeconds: number,
+  wakeMatch?: NotificationMatch
 ): Promise<{ value: T; timedOut: boolean }> {
   const timeoutMs = timeoutSeconds * 1000;
-  let elapsedMs = 0;
+  const startedAt = Date.now();
   let index = 0;
   for (;;) {
     const delay = schedule[Math.min(index, schedule.length - 1)];
-    await sleep(delay);
-    elapsedMs += delay;
+    const wake = wakeMatch ? waitForNotification(wakeMatch) : undefined;
+    await Promise.race(wake ? [sleep(delay), wake.promise] : [sleep(delay)]);
+    wake?.cancel();
     const { done, value } = await check();
     if (done) {
       return { value, timedOut: false };
     }
-    if (elapsedMs >= timeoutMs) {
+    if (Date.now() - startedAt >= timeoutMs) {
       return { value, timedOut: true };
     }
     index++;
@@ -146,11 +159,14 @@ async function fetchLatestClassificationJson(
 
 /** Polls an in-flight classification job (started by this call or found already running) to a
  * terminal status, evicting the cache each attempt per fetchLatestClassificationJson's note. Uses
- * CLASSIFICATION_POLL_SCHEDULE's tightening cadence rather than a flat interval — see its comment. */
+ * CLASSIFICATION_POLL_SCHEDULE's tightening cadence rather than a flat interval — see its comment.
+ * `branchPath` builds the wake match so a real STOMP push (see pollWithSchedule's comment) can cut
+ * a scheduled delay short instead of only checking on the next tick. */
 async function pollClassificationToTerminal(
   ctx: ActionContext,
   projectKey: string,
   taskKey: string,
+  branchPath: string,
   cookie: string,
   timeoutSeconds: number
 ): Promise<{ finalStatus: string | undefined; timedOut: boolean }> {
@@ -162,7 +178,8 @@ async function pollClassificationToTerminal(
       return { done: !stillRunning, value: status };
     },
     CLASSIFICATION_POLL_SCHEDULE,
-    timeoutSeconds
+    timeoutSeconds,
+    { entityType: 'Classification', projectKey, taskKey, branchPath }
   );
   return { finalStatus, timedOut };
 }
@@ -261,7 +278,7 @@ export async function classify(ctx: ActionContext, input: ClassifyInput): Promis
     ctx.outputChannel.appendLine(
       `[${new Date().toISOString()}] classify ${projectKey}/${taskKey}: found job ${existingJobId} already ${existingStatus} — waiting on it instead of starting a new one`
     );
-    const { finalStatus, timedOut } = await pollClassificationToTerminal(ctx, projectKey, taskKey, cookie, timeoutSeconds);
+    const { finalStatus, timedOut } = await pollClassificationToTerminal(ctx, projectKey, taskKey, branchPath, cookie, timeoutSeconds);
     const details = await fetchClassificationDetails(branchPath, existingJobId, cookie);
     let save: { accepted: boolean; status?: string; error?: string } = { accepted: false };
     if (!timedOut && finalStatus === 'COMPLETED') {
@@ -309,7 +326,7 @@ export async function classify(ctx: ActionContext, input: ClassifyInput): Promis
     return { statusCode: 200, body: { jobId, status: startResult.body.status } };
   }
 
-  const { finalStatus, timedOut } = await pollClassificationToTerminal(ctx, projectKey, taskKey, cookie, timeoutSeconds);
+  const { finalStatus, timedOut } = await pollClassificationToTerminal(ctx, projectKey, taskKey, branchPath, cookie, timeoutSeconds);
   const details = await fetchClassificationDetails(branchPath, jobId, cookie);
 
   // The CLI is headless — there's no human to click "Accept Classification Results" in the
@@ -410,10 +427,13 @@ export interface ValidateInput extends TaskContextInput {
   timeoutSeconds?: number;
 }
 
+/** `branchPath` builds the wake match so a real STOMP push can cut a scheduled delay short —
+ * see pollWithSchedule's comment. */
 async function pollValidationToTerminal(
   ctx: ActionContext,
   projectKey: string,
   taskKey: string,
+  branchPath: string,
   timeoutSeconds: number
 ): Promise<{ finalStatus: string | undefined; timedOut: boolean }> {
   // Unlike classification, no cache-evict endpoint exists for validation status in
@@ -427,7 +447,8 @@ async function pollValidationToTerminal(
       return { done: !stillRunning, value: status };
     },
     VALIDATION_POLL_SCHEDULE,
-    timeoutSeconds
+    timeoutSeconds,
+    { entityType: 'Validation', projectKey, taskKey, branchPath }
   );
   return { finalStatus, timedOut };
 }
@@ -446,7 +467,7 @@ export async function validate(ctx: ActionContext, input: ValidateInput): Promis
   if (!taskContext.ok) {
     return { statusCode: 400, body: { error: taskContext.error } };
   }
-  const { projectKey, taskKey } = taskContext;
+  const { projectKey, taskKey, branchPath } = taskContext;
 
   const precheck = await ensureTaskInProgress(ctx, projectKey, taskKey);
   if (precheck.error) {
@@ -461,7 +482,7 @@ export async function validate(ctx: ActionContext, input: ValidateInput): Promis
     ctx.outputChannel.appendLine(
       `[${new Date().toISOString()}] validate ${projectKey}/${taskKey}: validation already ${existingStatus} — waiting on it instead of starting a new one`
     );
-    const { finalStatus, timedOut } = await pollValidationToTerminal(ctx, projectKey, taskKey, timeoutSeconds);
+    const { finalStatus, timedOut } = await pollValidationToTerminal(ctx, projectKey, taskKey, branchPath, timeoutSeconds);
     ctx.outputChannel.appendLine(
       `[${new Date().toISOString()}] validate ${projectKey}/${taskKey}: attached run final status ${finalStatus ?? 'unknown'}${timedOut ? ' (timed out waiting)' : ''}`
     );
@@ -488,7 +509,7 @@ export async function validate(ctx: ActionContext, input: ValidateInput): Promis
     return { statusCode: 200, body: { started: true } };
   }
 
-  const { finalStatus, timedOut } = await pollValidationToTerminal(ctx, projectKey, taskKey, timeoutSeconds);
+  const { finalStatus, timedOut } = await pollValidationToTerminal(ctx, projectKey, taskKey, branchPath, timeoutSeconds);
 
   ctx.outputChannel.appendLine(
     `[${new Date().toISOString()}] validate ${projectKey}/${taskKey}: final status ${finalStatus ?? 'unknown'}${timedOut ? ' (timed out waiting)' : ''}`

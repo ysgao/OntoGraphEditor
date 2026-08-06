@@ -26,6 +26,7 @@ import { runClassify } from './commands/classify';
 import { runClassificationStatus } from './commands/classificationStatus';
 import { runValidateTask } from './commands/validateTask';
 import { runValidationStatus } from './commands/validationStatus';
+import { runWatchNotification } from './commands/watchNotification';
 
 function parseFlags(argv: string[]): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -396,6 +397,22 @@ const COMMANDS: Command[] = [
       runValidationStatus({
         project: flags.project,
         task: flags.task,
+      }),
+  },
+  {
+    name: 'watch-notification',
+    usage: 'watch-notification [--entity-type <type>] [--timeout <seconds>, default 60] [--project <projectKey> --task <taskKey>] ' +
+      '(read-only — blocks until the next real-time SCA notification for this task arrives, or the ' +
+      'timeout elapses, then prints it; a "tell me what happens next" companion to classify/validate-task, ' +
+      'which only wake early on a notification for their own specific job. --entity-type narrows to one of ' +
+      'Classification, Validation, Rebase, Promotion, BranchState, BranchHead, Feedback, AuthorChange — omit ' +
+      'to match any of them. Exits non-zero on a timeout, same convention as --wait timing out on classify/validate-task.)',
+    run: (flags) =>
+      runWatchNotification({
+        project: flags.project,
+        task: flags.task,
+        entityType: flags['entity-type'],
+        timeout: flags.timeout,
       }),
   },
 ];

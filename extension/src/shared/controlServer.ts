@@ -27,6 +27,7 @@ import { deleteConcept } from './actions/deleteConcept';
 import { validateConcept } from './actions/validateConcept';
 import { reviewConcepts } from './actions/reviewConcepts';
 import { classify, validate, classificationStatus, validationStatus } from './actions/classification';
+import { watchNotification } from './actions/watchNotification';
 
 /**
  * Local, token-authed HTTP API for the headless CLI (cli/). Unlike LocalProxy (which exists
@@ -288,6 +289,19 @@ export class ControlServer {
 
       if (method === 'POST' && path === '/tasks/validate') {
         await this.dispatch(req, res, (body) => validate(this.actionContext, body));
+        return;
+      }
+
+      if (method === 'GET' && path === '/tasks/wait-notification') {
+        const timeoutSecondsRaw = url.searchParams.get('timeoutSeconds');
+        const result = await watchNotification(this.actionContext, {
+          projectKey: url.searchParams.get('projectKey') ?? undefined,
+          taskKey: url.searchParams.get('taskKey') ?? undefined,
+          branchPath: url.searchParams.get('branchPath') ?? undefined,
+          entityType: url.searchParams.get('entityType') ?? undefined,
+          timeoutSeconds: timeoutSecondsRaw ? Number(timeoutSecondsRaw) : undefined,
+        });
+        this.sendJson(res, result.statusCode, result.body);
         return;
       }
 

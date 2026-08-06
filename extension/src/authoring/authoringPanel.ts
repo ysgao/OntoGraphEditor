@@ -10,8 +10,7 @@ import { isDisplayConfigChange } from './displayConfigMessages';
 import type { DisplayConfigInitMessage } from './displayConfigMessages';
 import { isTaskContextChanged } from '../shared/ipcMessages';
 import { setCurrentTask } from '../shared/sessionState';
-import { startScaRelay } from '../shared/notifications/scaNotificationRelay';
-import type { ScaRelayHandle } from '../shared/notifications/scaNotificationRelay';
+import { fetchAccountDetails } from '../shared/actions/accountDetails';
 
 export class AuthoringPanel {
   private static instance: AuthoringPanel | undefined;
@@ -21,7 +20,6 @@ export class AuthoringPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly distPath: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
-  private scaRelay: ScaRelayHandle | undefined;
 
   private constructor(context: vscode.ExtensionContext) {
     this.distPath = vscode.Uri.joinPath(
@@ -106,7 +104,7 @@ export class AuthoringPanel {
 
     const [uiConfig, accountDetails] = await Promise.all([
       this.fetchUiConfiguration(authoringEndpoint),
-      this.fetchAccountDetails(imsEndpoint, sessionCookie),
+      fetchAccountDetails(imsEndpoint, sessionCookie),
     ]);
 
     if (AuthoringPanel.instance !== this) { return; }
@@ -115,22 +113,6 @@ export class AuthoringPanel {
     try {
       this.panel.webview.html = this.buildHtml(uiConfig, accountDetails ?? undefined);
     } catch { return; /* panel disposed */ }
-
-    // (Re)start the host-side STOMP relay — reinitialize() can call initialize() again after a
-    // settings change, so any previous connection (against a possibly stale endpoint) is torn
-    // down first. Reuses the accountDetails.login this same call already fetched, rather than a
-    // second GET <imsEndpoint>/auth just for the relay's subscription destination.
-    this.scaRelay?.stop();
-    this.scaRelay = undefined;
-    const login = (accountDetails as { login?: string } | null)?.login;
-    if (login && sessionCookie) {
-      this.scaRelay = startScaRelay({
-        authoringServicesEndpoint: authoringEndpoint,
-        cookie: sessionCookie,
-        login,
-        onNotification: (payload) => AuthoringPanel.postMessage({ command: 'SCA_NOTIFICATION', payload }),
-      });
-    }
 
     if (!accountDetails) {
       vscode.window.showWarningMessage(
@@ -169,46 +151,6 @@ export class AuthoringPanel {
         resolve(null);
       });
       req.setTimeout(8000, () => { req.destroy(); resolve(null); });
-    });
-  }
-
-  private fetchAccountDetails(imsEndpoint: string, sessionCookie: string): Promise<object | null> {
-    const url = imsEndpoint.replace(/\/$/, '') + '/auth';
-    return new Promise((resolve) => {
-      const lib = url.startsWith('https') ? https : http;
-      const headers: Record<string, string> = { accept: 'application/json' };
-      // Sanitize cookie header: HTTP forbids bytes outside 0x20-0x7E (plus \t).
-      const safeCookie = sessionCookie ? sessionCookie.replace(/[^\x20-\x7e\t]/g, '') : '';
-      if (safeCookie !== sessionCookie) {
-        console.warn(`[OntoGraph] fetchAccountDetails sanitized cookie: ${sessionCookie.length} → ${safeCookie.length} chars`);
-      }
-      if (safeCookie) {
-        headers['cookie'] = safeCookie;
-      }
-      console.log(`[OntoGraph] fetchAccountDetails GET ${url}  cookie=${safeCookie ? safeCookie.slice(0, 30) + '…' : '(none)'}`);
-      const req = lib.get(url, { headers }, (res) => {
-        let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end', () => {
-          console.log(`[OntoGraph] fetchAccountDetails response: HTTP ${res.statusCode}  body length=${data.length}`);
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            try { resolve(JSON.parse(data)); return; } catch (e) {
-              console.warn('[OntoGraph] fetchAccountDetails JSON parse failed:', e, 'body preview:', data.slice(0, 200));
-            }
-          } else {
-            console.warn('[OntoGraph] fetchAccountDetails non-2xx body preview:', data.slice(0, 200));
-          }
-          resolve(null);
-        });
-      });
-      req.on('error', (err: Error) => {
-        console.warn('[OntoGraph] IMS auth fetch failed:', err.message);
-        resolve(null);
-      });
-      req.setTimeout(8000, () => {
-        console.warn('[OntoGraph] fetchAccountDetails timeout');
-        req.destroy(); resolve(null);
-      });
     });
   }
 
@@ -435,8 +377,6 @@ body,
 
   dispose(): void {
     AuthoringPanel.instance = undefined;
-    this.scaRelay?.stop();
-    this.scaRelay = undefined;
     this.panel.dispose();
     for (const d of this.disposables) {
       d.dispose();

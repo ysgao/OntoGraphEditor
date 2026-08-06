@@ -6,6 +6,7 @@ import { ControlServer } from '../shared/controlServer';
 import { writeSessionFile } from '../shared/sessionFile';
 import { onSessionStateChange, setSignedIn } from '../shared/sessionState';
 import { ensureAuthoringCliLinked } from '../shared/cliInstaller';
+import { refreshScaRelay } from '../shared/notifications/scaRelayManager';
 
 export async function activate(context: vscode.ExtensionContext, proxy: LocalProxy): Promise<ControlServer> {
   const controlServer = new ControlServer(context);
@@ -24,6 +25,10 @@ export async function activate(context: vscode.ExtensionContext, proxy: LocalPro
   const existingCookie = await context.secrets.get('imsSessionCookie');
   setSignedIn(!!existingCookie);
   console.log(`[OntoGraph] Control server (for cli/) started on localhost:${port}`);
+
+  refreshScaRelay(context).catch((err) => {
+    console.error('[OntoGraph] refreshScaRelay failed unexpectedly:', err);
+  });
 
   ensureAuthoringCliLinked(context).catch((err) => {
     console.error('[OntoGraph] ensureAuthoringCliLinked failed unexpectedly:', err);
@@ -51,6 +56,9 @@ export async function activate(context: vscode.ExtensionContext, proxy: LocalPro
           proxy.updateSessionCookie(cookie);
           setSignedIn(true);
           AuthoringPanel.reinitialize();
+          refreshScaRelay(context).catch((err) => {
+            console.error('[OntoGraph] refreshScaRelay failed unexpectedly:', err);
+          });
           vscode.window.showInformationMessage('Cookie saved and session updated.');
         }
       });
@@ -90,6 +98,9 @@ async function importChromeCookies(context: vscode.ExtensionContext, proxy: Loca
     proxy.updateSessionCookie(cookieHeader);
     setSignedIn(true);
     AuthoringPanel.reinitialize();
+    refreshScaRelay(context).catch((err) => {
+      console.error('[OntoGraph] refreshScaRelay failed unexpectedly:', err);
+    });
     vscode.window.showInformationMessage('Cookies imported from Chrome.');
   } catch (e) {
     const msg = (e instanceof Error) ? e.message : String(e);

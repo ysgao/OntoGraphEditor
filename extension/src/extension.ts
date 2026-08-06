@@ -6,6 +6,8 @@ import { LocalProxy } from './shared/localProxy';
 import { ControlServer } from './shared/controlServer';
 import { removeSessionFile } from './shared/sessionFile';
 import { IpcMessage, isConceptFocus, isGraphNodeSelect } from './shared/ipcMessages';
+import { onNotification } from './shared/notifications/notificationBus';
+import { stopScaRelay } from './shared/notifications/scaRelayManager';
 
 let proxy: LocalProxy | null = null;
 let controlServer: ControlServer | null = null;
@@ -17,6 +19,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
   controlServer = await activateAuthoring(context, proxy);
   activateGraph(context);
+
+  // Forward every SCA notification the relay (scaRelayManager.ts) receives into the Authoring
+  // webview, if one happens to be open — a single, permanent subscription rather than something
+  // AuthoringPanel manages itself, since the relay's lifetime is no longer tied to any panel.
+  // AuthoringPanel.postMessage() already no-ops when no panel instance exists.
+  onNotification((payload) => AuthoringPanel.postMessage({ command: 'SCA_NOTIFICATION', payload }));
 
   context.subscriptions.push(
     vscode.commands.registerCommand('ontographEditor.ipcRoute', (message: IpcMessage) => {
@@ -37,6 +45,7 @@ export async function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
   proxy?.stop();
   controlServer?.stop();
+  stopScaRelay();
   removeSessionFile();
 }
 
