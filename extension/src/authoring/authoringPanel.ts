@@ -10,6 +10,8 @@ import { isDisplayConfigChange } from './displayConfigMessages';
 import type { DisplayConfigInitMessage } from './displayConfigMessages';
 import { isTaskContextChanged } from '../shared/ipcMessages';
 import { setCurrentTask } from '../shared/sessionState';
+import { startScaRelay } from '../shared/notifications/scaNotificationRelay';
+import type { ScaRelayHandle } from '../shared/notifications/scaNotificationRelay';
 
 export class AuthoringPanel {
   private static instance: AuthoringPanel | undefined;
@@ -19,6 +21,7 @@ export class AuthoringPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly distPath: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
+  private scaRelay: ScaRelayHandle | undefined;
 
   private constructor(context: vscode.ExtensionContext) {
     this.distPath = vscode.Uri.joinPath(
@@ -112,6 +115,22 @@ export class AuthoringPanel {
     try {
       this.panel.webview.html = this.buildHtml(uiConfig, accountDetails ?? undefined);
     } catch { return; /* panel disposed */ }
+
+    // (Re)start the host-side STOMP relay — reinitialize() can call initialize() again after a
+    // settings change, so any previous connection (against a possibly stale endpoint) is torn
+    // down first. Reuses the accountDetails.login this same call already fetched, rather than a
+    // second GET <imsEndpoint>/auth just for the relay's subscription destination.
+    this.scaRelay?.stop();
+    this.scaRelay = undefined;
+    const login = (accountDetails as { login?: string } | null)?.login;
+    if (login && sessionCookie) {
+      this.scaRelay = startScaRelay({
+        authoringServicesEndpoint: authoringEndpoint,
+        cookie: sessionCookie,
+        login,
+        onNotification: (payload) => AuthoringPanel.postMessage({ command: 'SCA_NOTIFICATION', payload }),
+      });
+    }
 
     if (!accountDetails) {
       vscode.window.showWarningMessage(
@@ -416,6 +435,8 @@ body,
 
   dispose(): void {
     AuthoringPanel.instance = undefined;
+    this.scaRelay?.stop();
+    this.scaRelay = undefined;
     this.panel.dispose();
     for (const d of this.disposables) {
       d.dispose();

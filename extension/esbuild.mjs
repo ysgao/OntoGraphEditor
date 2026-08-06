@@ -18,7 +18,11 @@ const nodeConfig = {
   platform: 'node',
   format: 'cjs',
   target: 'node18',
-  external: ['vscode'],
+  // vscode is host-provided. bufferutil/utf-8-validate are ws's optional native accelerators,
+  // conditionally required inside a try/catch (see node_modules/ws/lib/{buffer-util,validation}.js)
+  // and never installed here — marking them external avoids an esbuild "could not resolve" error
+  // for a require() that's fine to fail at runtime (ws falls back to its pure-JS implementation).
+  external: ['vscode', 'bufferutil', 'utf-8-validate'],
 };
 
 // 1. Main Extension Host

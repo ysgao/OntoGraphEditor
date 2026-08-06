@@ -50,7 +50,18 @@ export interface ValidationResultsMessage {
   };
 }
 
-export type IpcMessage = ConceptFocusMessage | GraphNodeSelectMessage | TaskContextChangedMessage | ValidationResultsMessage;
+/** Host-initiated only — the extension host holds the real STOMP/SockJS connection to
+ * authoring-services (scaNotificationRelay.ts) since the webview's own scaService.js skips
+ * connecting entirely in VS Code mode (see stompConnect()'s isVsCode guard). Each parsed
+ * notification frame (Classification/Validation/Rebase/Promotion/BranchState/BranchHead/
+ * Feedback/AuthorChange — see scaService.js's handleNotificationPayload) is forwarded here
+ * as-is; the payload shape is owned by authoring-services, not this bridge. */
+export interface ScaNotificationMessage {
+  command: 'SCA_NOTIFICATION';
+  payload: unknown;
+}
+
+export type IpcMessage = ConceptFocusMessage | GraphNodeSelectMessage | TaskContextChangedMessage | ValidationResultsMessage | ScaNotificationMessage;
 
 export function isConceptFocus(msg: unknown): msg is ConceptFocusMessage {
   return (

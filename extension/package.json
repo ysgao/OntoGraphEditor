@@ -591,6 +591,7 @@
     "@types/n3": "^1.26.1",
     "@types/node": "18.x",
     "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
     "@vscode/vsce": "^3.0.0",
     "cytoscape": "^3.33.3",
     "cytoscape-dagre": "^2.5.0",
@@ -604,5 +605,8 @@
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "dependencies": {
+    "ws": "^8.21.2"
   }
 }
